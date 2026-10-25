@@ -1,0 +1,11 @@
+# 复制为 config.toml 后填写
+room_id = 123456            # 直播间号（短号也可以）
+
+# 登录 cookie：不填也能连，但弹幕里的 uid 会被脱敏成 0，画像基本做不了。
+# 从浏览器复制 SESSDATA / bili_jct / buvid3 / DedeUserID 这几个即可。
+cookie = "SESSDATA=xxx; bili_jct=xxx; buvid3=xxx; DedeUserID=xxx"
+
+db_path = "data/bgs.db"
+
+# 估算在场时长用：两次互动间隔超过这个秒数，视为中途离场
+presence_gap_seconds = 1800
