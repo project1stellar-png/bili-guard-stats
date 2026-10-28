@@ -1,2 +1,3 @@
 aiohttp>=3.9
 brotli>=1.1
+qrcode>=7

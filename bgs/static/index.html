@@ -41,7 +41,7 @@
 <main id="main"></main>
 <dialog id="dlg"></dialog>
 <script>
-const TABS = [["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单"],["monthly","记账"],["schedule","排播"]];
+const TABS = [["sessions","场次"],["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单"],["monthly","记账"],["schedule","排播"]];
 const $ = s => document.querySelector(s);
 const yuan = c => (c/1000).toFixed(c%1000?1:0) + " 元";
 const dt = t => new Date(t*1000).toLocaleString("zh-CN",{hour12:false});
@@ -65,12 +65,18 @@ async function render(){
   const seq = ++renderSeq;
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.k===tab));
   $("#main").innerHTML = `<div class="empty">加载中…</div>`;
-  const html = await ({guards,flow,gifts,attendance,thanks,monthly,schedule})[tab]();
+  const html = await ({sessions,guards,flow,gifts,attendance,thanks,monthly,schedule})[tab]();
   if (seq === renderSeq) $("#main").innerHTML = html;
 }
 const table = (heads, rows, empty="暂无数据") => rows.length ? `<div class="wrap"><table><tr>${heads.map(h=>`<th class="${h.startsWith("#")?"num":""}">${h.replace(/^#/,"")}</th>`).join("")}</tr>${rows.join("")}</table></div>` : `<div class="empty">${empty}</div>`;
 const td = (v,num) => `<td class="${num?"num":""}">${v}</td>`;
 
+async function sessions(){
+  const ss = await api("/api/sessions");
+  const dur = s => s.ended_at ? ((s.ended_at-s.started_at)/3600).toFixed(1)+" h" : "进行中";
+  return `<p class="muted">观看人数 / 高能榜在线 / 点赞来自直播间广播（WATCHED_CHANGE、ONLINE_RANK_COUNT、LIKE_INFO_V3_UPDATE），峰值取场内最大值。</p>` +
+    table(["开始","#时长","#弹幕","#互动人数","#在线峰值","#看过","#点赞","#收入"], ss.map(s=>`<tr>${td(dt(s.started_at))}${td(dur(s),1)}${td(s.danmu,1)}${td(s.users,1)}${td(s.peak_online??"-",1)}${td(s.watched??"-",1)}${td(s.likes??"-",1)}${td(yuan(s.coin),1)}</tr>`), "还没有场次");
+}
 async function guards(){
   const g = await api("/api/guards");
   const n = {1:0,2:0,3:0}; g.forEach(x=>n[x.guard_level]++);

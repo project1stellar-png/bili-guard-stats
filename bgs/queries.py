@@ -16,7 +16,10 @@ def sessions(conn) -> list[dict]:
         "SELECT s.id, s.room_id, s.started_at, s.ended_at,"
         " (SELECT COUNT(*) FROM events e WHERE e.session_id=s.id AND e.cmd='DANMU_MSG') AS danmu,"
         " (SELECT COALESCE(SUM(coin),0) FROM events e WHERE e.session_id=s.id) AS coin,"
-        " (SELECT COUNT(DISTINCT uid) FROM events e WHERE e.session_id=s.id AND e.uid>0) AS users"
+        " (SELECT COUNT(DISTINCT uid) FROM events e WHERE e.session_id=s.id AND e.uid>0) AS users,"
+        " (SELECT MAX(value) FROM metrics m WHERE m.session_id=s.id AND m.key='online_rank_count') AS peak_online,"
+        " (SELECT MAX(value) FROM metrics m WHERE m.session_id=s.id AND m.key='watched') AS watched,"
+        " (SELECT MAX(value)-MIN(value) FROM metrics m WHERE m.session_id=s.id AND m.key='likes') AS likes"
         " FROM sessions s ORDER BY s.id DESC").fetchall()
     return [dict(r) for r in rows]
 

@@ -6,7 +6,8 @@ B站直播间舰长 / 消费 / 在场时长统计工具（主播自用）。
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp config.example.toml config.toml   # 填 room_id 和 cookie
+cp config.example.toml config.toml   # 填 room_id
+.venv/bin/python -m bgs.login        # 终端出二维码，B站 App 扫码，cookie 自动写入 config.toml
 .venv/bin/python -m bgs.collect      # 开播前跑起来，Ctrl+C 结束
 .venv/bin/python -m bgs.report       # 命令行报表；加 uid 看单人画像
 .venv/bin/python -m bgs.web          # 本地网页后台 http://127.0.0.1:8765
@@ -18,6 +19,7 @@ cp config.example.toml config.toml   # 填 room_id 和 cookie
 
 | 页签 | 内容 |
 | --- | --- |
+| 场次 | 每场时长、弹幕数、互动人数、在线峰值、看过人数、点赞、收入 |
 | 舰长 | 当前大航海名单（总督 / 提督 / 舰长），陪伴天数、出勤、估算在场时长、弹幕、消费；点名字看画像 |
 | 流水 | 礼物 / 上舰 / SC 逐条流水，可按场次筛选 |
 | 礼物榜 | 按人汇总消费排行 |
@@ -51,8 +53,27 @@ cp config.example.toml config.toml   # 填 room_id 和 cookie
 - 不登录 cookie 时弹幕 uid 会脱敏成 0，这类事件不计入个人统计。
 - 非官方接口，B站改协议时需要跟进。
 
-## 待办
+## 登录
 
-- 进场消息已改为 `INTERACT_WORD_V2`（protobuf，字段 `pb`），当前未解析，在场时长估算暂只靠弹幕 / 礼物 / 点赞。
-- `ONLINE_RANK_V3` 带高能榜前几名的 uid，可以作为在场信号补充。
+主播登录用的是 B站网页端的扫码登录接口（passport.bilibili.com 的 qrcode/generate + qrcode/poll），
+和浏览器登录是同一套，不需要申请开放平台。`bgs.login` 扫完后把 SESSDATA / bili_jct / DedeUserID / buvid 写进 config.toml。
+cookie 一般几个月有效，过期了重新扫一次。不要把 config.toml 发给别人，它等于你的登录态。
+
+## 解析的消息
+
+| 消息 | 处理 |
+| --- | --- |
+| DANMU_MSG | 弹幕，uid / 昵称 / 粉丝牌 / 舰长等级 |
+| SEND_GIFT | 礼物，只计金瓜子 |
+| GUARD_BUY / USER_TOAST_MSG | 上舰 / 续费，金额只记 GUARD_BUY 一次 |
+| SUPER_CHAT_MESSAGE | SC |
+| INTERACT_WORD_V2 | 进场 / 关注 / 分享，protobuf，用 `bgs/pb.py` 的通用 wire 解码（字段布局是实测推的） |
+| ENTRY_EFFECT / LIKE_INFO_V3_CLICK | 舰长进场特效 / 点赞，作在场信号 |
+| ONLINE_RANK_V3 | 高能榜前几名（protobuf），作在场信号，同一人 5 分钟内只记一次 |
+| WATCHED_CHANGE / ONLINE_RANK_COUNT / LIKE_INFO_V3_UPDATE | 房间指标，进 metrics 表，值变化才写 |
+
+## 已知限制 / 待办
+
 - 不带 cookie 实测：公开接口和弹幕流都能连，但弹幕 uid 大多为 0、昵称打码。
+- 短时间反复请求 getDanmuInfo 会触发 -352 风控，几分钟后自然恢复。
+- INTERACT_WORD_V2 的粉丝牌子消息（字段 9）布局没抓到带牌子的样本，按 v1 字段顺序推的，上线后核对一下。

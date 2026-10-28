@@ -4,7 +4,9 @@ import logging
 
 from .api import BiliApi, UA
 from .config import Config, cookie_dict
-from .parse import normalize
+import time
+
+from .parse import normalize, metric, online_rank
 from .store import Store
 from . import ws
 
@@ -30,6 +32,8 @@ async def run(cfg: Config) -> None:
         await snapshot_guards(api, store, real_room, ruid)
 
         backoff = 1
+        last_metric: dict[str, int] = {}
+        last_rank_seen: dict[int, float] = {}
         try:
             while True:
                 try:
@@ -41,6 +45,17 @@ async def run(cfg: Config) -> None:
                         headers["buvid"] = ck["buvid3"]
                     backoff = 1
                     async for msg in ws.stream(dm["host_list"], dm["token"], real_room, uid, headers):
+                        mt = metric(msg)
+                        if mt and last_metric.get(mt[0]) != mt[1]:
+                            last_metric[mt[0]] = mt[1]
+                            store.add_metric(session_id, *mt)
+                            continue
+                        now = time.time()
+                        for item in online_rank(msg):  # 同一人 5 分钟内只记一次
+                            if now - last_rank_seen.get(item["uid"], 0) > 300:
+                                last_rank_seen[item["uid"]] = now
+                                store.add_event(session_id, item["cmd"], item["uid"], item["uname"],
+                                                guard_level=item["guard_level"], text=item["text"])
                         r = normalize(msg)
                         if r is None:
                             continue
@@ -62,12 +77,21 @@ async def run(cfg: Config) -> None:
             store.end_session(session_id)
 
 
+async def _main(cfg: Config) -> None:
+    import signal
+    task = asyncio.ensure_future(run(cfg))
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, task.cancel)
+    try:
+        await task
+    except asyncio.CancelledError:
+        log.info("已停止")
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    try:
-        asyncio.run(run(Config.load()))
-    except KeyboardInterrupt:
-        pass
+    asyncio.run(_main(Config.load()))
 
 
 if __name__ == "__main__":

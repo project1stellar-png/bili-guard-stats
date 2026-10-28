@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS guard_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_snap_room_time ON guard_snapshots(room_id, taken_at);
 
+CREATE TABLE IF NOT EXISTS metrics (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL,
+    ts REAL NOT NULL,
+    key TEXT NOT NULL,          -- watched / online_rank_count / likes
+    value INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_metrics ON metrics(session_id, key, ts);
+
 CREATE TABLE IF NOT EXISTS schedule (
     id INTEGER PRIMARY KEY,
     date TEXT NOT NULL,         -- YYYY-MM-DD
@@ -77,6 +86,11 @@ class Store:
             (session_id, ts or time.time(), cmd, uid, uname, coin, guard_level, medal_level, text,
              json.dumps(raw, ensure_ascii=False) if raw is not None else None),
         )
+        self.conn.commit()
+
+    def add_metric(self, session_id: int, key: str, value: int) -> None:
+        self.conn.execute("INSERT INTO metrics(session_id, ts, key, value) VALUES (?,?,?,?)",
+                          (session_id, time.time(), key, value))
         self.conn.commit()
 
     def add_guard_snapshot(self, room_id: int, rows: list[dict]) -> None:

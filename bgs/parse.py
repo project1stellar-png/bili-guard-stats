@@ -1,8 +1,47 @@
 """把 B站杂乱的消息体归一化成 (cmd, uid, uname, coin, guard_level, medal_level, text)。
 只处理和统计有关的几类，其余返回 None 丢掉。"""
 
+import base64
+
+from . import pb
+
 KEEP = {"DANMU_MSG", "SEND_GIFT", "GUARD_BUY", "USER_TOAST_MSG", "SUPER_CHAT_MESSAGE",
-        "INTERACT_WORD", "ENTRY_EFFECT", "LIKE_INFO_V3_CLICK"}
+        "INTERACT_WORD", "INTERACT_WORD_V2", "ENTRY_EFFECT", "LIKE_INFO_V3_CLICK"}
+
+# 房间级指标（不是某个人的行为）：cmd -> (指标名, 取值函数)
+METRICS = {
+    "WATCHED_CHANGE": ("watched", lambda d: d.get("num")),
+    "ONLINE_RANK_COUNT": ("online_rank_count", lambda d: d.get("online_count") or d.get("count")),
+    "LIKE_INFO_V3_UPDATE": ("likes", lambda d: d.get("click_count")),
+}
+
+
+def metric(msg: dict) -> tuple[str, int] | None:
+    """返回 (指标名, 值)，不是指标消息则 None。"""
+    m = METRICS.get(msg.get("cmd", ""))
+    if not m:
+        return None
+    v = m[1](msg.get("data") or {})
+    return (m[0], int(v)) if v is not None else None
+
+
+def online_rank(msg: dict) -> list[dict]:
+    """ONLINE_RANK_V3（protobuf）：高能榜前几名，作为在场信号。
+    布局（实测）：3 = 榜单项 repeated { 1 uid, 2 头像, 3{6 score}, 4 uname, 5 rank, 6 guard_level }"""
+    if msg.get("cmd") != "ONLINE_RANK_V3":
+        return []
+    try:
+        d = pb.decode(base64.b64decode(msg["data"]["pb"]))
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for raw in d.get(3, []):
+        it = pb.decode(raw)
+        uid = pb.i(it, 1)
+        if uid:
+            out.append({"cmd": "ONLINE_RANK", "uid": uid, "uname": pb.s(it, 4), "coin": 0,
+                        "guard_level": pb.i(it, 6), "medal_level": 0, "text": f"高能榜第{pb.i(it, 5)}"})
+    return out
 
 
 def normalize(msg: dict) -> dict | None:
@@ -47,6 +86,17 @@ def normalize(msg: dict) -> dict | None:
         r["guard_level"] = int(ui.get("guard_level", 0))
         r["medal_level"] = int(((d.get("medal_info") or {}).get("medal_level")) or 0)
         r["text"] = d.get("message", "")
+    elif base == "INTERACT_WORD_V2":
+        # protobuf，布局（实测 + 对照 v1 字段）：1 uid, 2 uname, 4 identities, 5 msg_type, 6 roomid, 7 ts, 9 fans_medal
+        try:
+            m = pb.decode(base64.b64decode(d["pb"]))
+        except Exception:  # noqa: BLE001
+            return None
+        r["uid"], r["uname"] = pb.i(m, 1), pb.s(m, 2)
+        fm = pb.m(m, 9)
+        r["medal_level"], r["guard_level"] = pb.i(fm, 2), pb.i(fm, 9)
+        r["text"] = {1: "进场", 2: "关注", 3: "分享"}.get(pb.i(m, 5), "进场")
+        r["cmd"] = "INTERACT_WORD"
     elif base in ("INTERACT_WORD", "ENTRY_EFFECT", "LIKE_INFO_V3_CLICK"):
         r["uid"], r["uname"] = int(d.get("uid", 0)), d.get("uname", "")
         fm = d.get("fans_medal") or {}

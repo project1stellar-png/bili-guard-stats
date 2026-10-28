@@ -24,6 +24,10 @@ def main() -> None:
         start = now - (40 - s * 7) * 86400 + 20 * 3600
         sid = st.start_session(1)
         st.conn.execute("UPDATE sessions SET started_at=?, ended_at=? WHERE id=?", (start, start + 3 * 3600, sid))
+        for k, base in (("watched", 3000 + s * 400), ("online_rank_count", 200 + s * 30), ("likes", 10000 * s)):
+            for j in range(6):
+                st.conn.execute("INSERT INTO metrics(session_id, ts, key, value) VALUES (?,?,?,?)",
+                                (sid, start + j * 1800, k, base + j * (50 if k != "likes" else 900)))
         for u in users:
             if rng.random() < 0.3:
                 continue
