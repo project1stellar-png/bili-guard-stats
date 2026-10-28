@@ -36,12 +36,13 @@
 <header>
   <h1>直播后台</h1>
   <nav id="nav"></nav>
-  <select id="session"></select>
+  <span id="dot" class="muted" style="margin-left:auto;font-size:12px"></span>
+  <select id="session" style="margin-left:8px"></select>
 </header>
 <main id="main"></main>
 <dialog id="dlg"></dialog>
 <script>
-const TABS = [["sessions","场次"],["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单"],["monthly","记账"],["schedule","排播"]];
+const TABS = [["settings","设置"],["sessions","场次"],["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单"],["monthly","记账"],["schedule","排播"]];
 const $ = s => document.querySelector(s);
 const yuan = c => (c/1000).toFixed(c%1000?1:0) + " 元";
 const dt = t => new Date(t*1000).toLocaleString("zh-CN",{hour12:false});
@@ -50,7 +51,7 @@ const tag = g => g ? `<span class="tag g${g}">${{1:"总督",2:"提督",3:"舰长
 const user = (uid,name) => `<span class="link" onclick="profile(${uid})">${esc(name||"?")}</span>`;
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const api = (p,o) => fetch(p,o).then(r=>r.json());
-let tab = localStorage.getItem("tab") || "guards", sessionId = "";
+let tab = localStorage.getItem("tab") || "settings", sessionId = "";
 
 async function init(){
   const ss = await api("/api/sessions");
@@ -59,13 +60,60 @@ async function init(){
   $("#nav").innerHTML = TABS.map(([k,n])=>`<button data-k="${k}">${n}</button>`).join("");
   $("#nav").onclick = e => { if(e.target.dataset.k){ tab=e.target.dataset.k; localStorage.setItem("tab",tab); render(); } };
   render();
+  pollStatus();
+}
+async function pollStatus(){
+  try {
+    const st = await api("/api/status");
+    const c = st.collect || {};
+    $("#dot").textContent = st.collecting ? (c.connected ? `● 采集中 · ${c.events||0} 条` : `◐ 连接中 ${c.error?("· "+c.error.slice(0,40)):""}`) : "○ 未采集";
+    $("#dot").style.color = st.collecting && c.connected ? "#16a34a" : "";
+  } catch(e) {}
+  setTimeout(pollStatus, 3000);
+}
+async function settings(){
+  const st = await api("/api/status");
+  const c = st.collect || {};
+  return `<div class="cards">
+    <div class="card"><div class="k">登录</div><div class="v">${st.logged_in ? "已登录" : "未登录"}</div><div class="muted">${st.logged_in ? "uid "+st.uid : "不登录也能连，但弹幕里的 uid 会被打码"}</div></div>
+    <div class="card"><div class="k">采集</div><div class="v">${st.collecting ? (c.connected ? "运行中" : "连接中") : "停止"}</div><div class="muted">${c.error ? esc(c.error).slice(0,80) : (c.real_room ? "房间 "+c.real_room+" · 直播状态 "+({0:"未开播",1:"直播中",2:"轮播"}[c.live_status]??c.live_status) : "")}</div></div>
+    <div class="card"><div class="k">数据位置</div><div class="v" style="font-size:13px;word-break:break-all">${esc(st.db_path)}</div></div>
+  </div>
+  <h2>房间</h2>
+  <div class="row"><input id="room" type="number" placeholder="直播间号（短号也行）" value="${st.room_id||""}" style="width:220px"><button class="btn" onclick="saveRoom()">保存</button>
+    ${st.collecting ? `<button class="btn ghost" onclick="api('/api/collect/stop',{method:'POST'}).then(render)">停止采集</button>` : `<button class="btn" onclick="api('/api/collect/start',{method:'POST'}).then(r=>{ if(r.error) alert(r.error); render(); })">开始采集</button>`}
+  </div>
+  <p class="muted">开播前点「开始采集」，它会先拉一次舰长名单，然后持续记弹幕 / 礼物 / 上舰 / SC / 进场，断线自动重连。关掉这个程序就停止。</p>
+  <h2>B站登录</h2>
+  <div class="row"><button class="btn" onclick="startLogin()">${st.logged_in ? "重新扫码" : "扫码登录"}</button>${st.logged_in ? `<button class="btn ghost" onclick="api('/api/logout',{method:'POST'}).then(render)">退出登录</button>` : ""}</div>
+  <div id="qrbox"></div>
+  <p class="muted">用的是 B站网页端的扫码登录，登录态只保存在本机的 config.toml 里，不要把它发给别人。</p>`;
+}
+async function saveRoom(){
+  await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({room_id:$("#room").value})});
+  render();
+}
+let loginTimer = null;
+async function startLogin(){
+  clearTimeout(loginTimer);
+  const r = await api("/api/login/qr",{method:"POST"});
+  $("#qrbox").innerHTML = `<div class="card" style="display:inline-block;text-align:center"><img src="${r.png}" width="220" height="220" style="display:block;image-rendering:pixelated"><div id="qrmsg" class="muted">用 B站 App 扫码，3 分钟内有效</div></div>`;
+  const tick = async () => {
+    const p = await api("/api/login/poll");
+    const m = $("#qrmsg"); if(!m) return;
+    if(p.code === 0){ m.textContent = "登录成功"; setTimeout(render, 800); return; }
+    if(p.code === 86038){ m.textContent = "二维码已过期，点按钮重新生成"; return; }
+    if(p.code === 86090) m.textContent = "已扫码，请在手机上确认";
+    loginTimer = setTimeout(tick, 2000);
+  };
+  loginTimer = setTimeout(tick, 2000);
 }
 let renderSeq = 0;
 async function render(){
   const seq = ++renderSeq;
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.k===tab));
   $("#main").innerHTML = `<div class="empty">加载中…</div>`;
-  const html = await ({sessions,guards,flow,gifts,attendance,thanks,monthly,schedule})[tab]();
+  const html = await ({settings,sessions,guards,flow,gifts,attendance,thanks,monthly,schedule})[tab]();
   if (seq === renderSeq) $("#main").innerHTML = html;
 }
 const table = (heads, rows, empty="暂无数据") => rows.length ? `<div class="wrap"><table><tr>${heads.map(h=>`<th class="${h.startsWith("#")?"num":""}">${h.replace(/^#/,"")}</th>`).join("")}</tr>${rows.join("")}</table></div>` : `<div class="empty">${empty}</div>`;

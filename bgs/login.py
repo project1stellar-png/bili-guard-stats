@@ -16,32 +16,60 @@ POLL = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
 SPI = "https://api.bilibili.com/x/frontend/finger/spi"
 
 
-async def login() -> str:
-    headers = {"User-Agent": UA, "Referer": "https://www.bilibili.com/", "Accept-Encoding": "gzip"}
-    async with aiohttp.ClientSession(headers=headers) as s:
-        async with s.get(GEN) as r:
+HEADERS = {"User-Agent": UA, "Referer": "https://www.bilibili.com/", "Accept-Encoding": "gzip"}
+
+
+class QrLogin:
+    """两步：start() 拿二维码内容；poll() 轮询，返回 (状态码, cookie 或 None)。
+    0 成功 / 86101 未扫 / 86090 已扫未确认 / 86038 过期。"""
+
+    def __init__(self):
+        self.session = aiohttp.ClientSession(headers=HEADERS)
+        self.key = ""
+        self.url = ""
+
+    async def start(self) -> str:
+        async with self.session.get(GEN) as r:
             d = (await r.json())["data"]
+        self.key, self.url = d["qrcode_key"], d["url"]
+        return self.url
+
+    async def poll(self) -> tuple[int, str | None]:
+        async with self.session.get(POLL, params={"qrcode_key": self.key}) as r:
+            p = (await r.json())["data"]
+        code = int(p.get("code", -1))
+        if code != 0:
+            return code, None
+        ck = {c.key: c.value for c in self.session.cookie_jar}
+        async with self.session.get(SPI) as r:
+            fp = (await r.json())["data"]
+        ck["buvid3"], ck["buvid4"] = fp["b_3"], fp["b_4"]
+        keys = ["SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "buvid3", "buvid4"]
+        return 0, "; ".join(f"{k}={ck[k]}" for k in keys if k in ck)
+
+    async def close(self) -> None:
+        await self.session.close()
+
+
+async def login() -> str:
+    q = QrLogin()
+    try:
+        url = await q.start()
         qr = qrcode.QRCode(border=1)
-        qr.add_data(d["url"])
+        qr.add_data(url)
         qr.print_ascii(invert=True)
         print("用 B站 App 扫描上方二维码并确认登录（3 分钟内有效）…")
         while True:
             await asyncio.sleep(2)
-            async with s.get(POLL, params={"qrcode_key": d["qrcode_key"]}) as r:
-                p = (await r.json())["data"]
-            code = p.get("code")
+            code, cookie = await q.poll()
             if code == 0:
-                ck = {c.key: c.value for c in s.cookie_jar}
-                break
+                return cookie
             if code == 86038:
                 raise SystemExit("二维码已过期，重新运行一次")
             if code == 86090:
                 print("已扫码，请在手机上确认…", end="\r")
-        async with s.get(SPI) as r:
-            fp = (await r.json())["data"]
-        ck["buvid3"], ck["buvid4"] = fp["b_3"], fp["b_4"]
-    keys = ["SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "buvid3", "buvid4"]
-    return "; ".join(f"{k}={ck[k]}" for k in keys if k in ck)
+    finally:
+        await q.close()
 
 
 def write_config(cookie: str, path: str = "config.toml") -> None:

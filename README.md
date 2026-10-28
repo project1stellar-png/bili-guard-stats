@@ -2,7 +2,23 @@
 
 B站直播间舰长 / 消费 / 在场时长统计工具（主播自用）。
 
-## 用法
+## Windows 桌面版
+
+解压 `直播后台-windows.zip`，双击 `直播后台.exe`：会弹一个控制台窗口并自动打开浏览器 http://127.0.0.1:8765 。
+在「设置」页填直播间号、扫码登录、点「开始采集」即可；关掉控制台窗口就退出。
+配置和数据库放在 exe 旁边的 `data/` 目录，换机器把这个目录一起拷走就行。
+
+打包方式：
+
+```bash
+pip install -r requirements.txt pyinstaller
+pyinstaller bgs-desktop.spec          # 产物在 dist/直播后台/
+```
+
+PyInstaller 只能在目标系统上打包，Windows 包要在 Windows 上打，或者推到 GitHub 打一个 `v*` 标签，
+`.github/workflows/build.yml` 会在 Windows runner 上打包并挂到 Release。
+
+## 命令行用法（开发）
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
