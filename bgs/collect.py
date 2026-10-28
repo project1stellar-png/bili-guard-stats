@@ -75,6 +75,20 @@ async def run(cfg: Config, status: dict | None = None) -> None:
                         now = time.time()
                         if r["cmd"] == "GUARD_BUY" and r["uid"]:
                             guard_echo[r["uid"]] = {"ts": now, "coin": r["coin"], "left": 4, "row": None}
+                        elif r["cmd"] == "USER_TOAST_MSG" and r["uid"] in guard_echo:
+                            # 实付价来自上舰通知：低于 GUARD_BUY 的标价就修正（打折舰长）
+                            e = guard_echo[r["uid"]]
+                            pay = r.get("pay_coin", 0)
+                            if e["row"] and 0 < pay < e["coin"]:
+                                store.conn.execute("UPDATE events SET coin=? WHERE id=?", (pay, e["row"]))
+                                store.conn.commit()
+                                log.info("打折舰长：%s 上舰 %.0f -> 实付 %.0f 元", r["uname"], e["coin"] / 1000, pay / 1000)
+                                e["coin"] = pay
+                            if r.get("payflow_id"):
+                                # 同一笔 payflow 的 V1 / V2 通知只留一条
+                                if e.get("payflow") == r["payflow_id"]:
+                                    continue
+                                e["payflow"] = r["payflow_id"]
                         elif r["cmd"] == "SEND_GIFT" and r["uid"] in guard_echo:
                             e = guard_echo[r["uid"]]
                             if now - e["ts"] <= 15 and e["left"] > 0 and GUARD_WORD.search(r["text"] or ""):

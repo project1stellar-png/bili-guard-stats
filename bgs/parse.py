@@ -5,7 +5,7 @@ import base64
 
 from . import pb
 
-KEEP = {"DANMU_MSG", "SEND_GIFT", "SEND_GIFT_V2", "GUARD_BUY", "USER_TOAST_MSG", "SUPER_CHAT_MESSAGE",
+KEEP = {"DANMU_MSG", "SEND_GIFT", "SEND_GIFT_V2", "GUARD_BUY", "USER_TOAST_MSG", "USER_TOAST_MSG_V2", "SUPER_CHAT_MESSAGE",
         "INTERACT_WORD", "INTERACT_WORD_V2", "ENTRY_EFFECT", "LIKE_INFO_V3_CLICK"}
 
 
@@ -14,13 +14,17 @@ def _find_gift_item(d: dict, depth: int = 0) -> dict | None:
     不信任固定路径，递归找第一个长得像的子消息。字段号来自 hefafafa/realtime_liushui 的实测。"""
     if depth > 4:
         return None
-    if isinstance(d.get(2, [None])[0], bytes) and d.get(1) and not isinstance(d[1][0], bytes) and d.get(5) \
-            and not isinstance(d[5][0], bytes):
+    # 实测顶层字段 10 就是礼物；兜底时要求 8 是 coin_type（gold/silver），否则顶层（1 uid / 2 uname / 5 guard_level）会被误认
+    if depth == 0 and d.get(10) and isinstance(d[10][0], bytes):
         try:
-            d[2][0].decode("utf-8")
-            return d
-        except UnicodeDecodeError:
+            sub = pb.decode(d[10][0])
+            if sub.get(1) and sub.get(2):
+                return sub
+        except Exception:  # noqa: BLE001
             pass
+    if isinstance(d.get(2, [None])[0], bytes) and d.get(1) and not isinstance(d[1][0], bytes) \
+            and d.get(8) and d[8][0] in (b"gold", b"silver"):
+        return d
     for vals in d.values():
         for v in vals:
             if isinstance(v, bytes) and len(v) > 4:
@@ -96,15 +100,18 @@ def normalize(msg: dict) -> dict | None:
         item = _find_gift_item(m)
         if not item:
             return None
+        # 实测布局（2026-10）：顶层 1 uid / 2 uname / 3 头像 / 5 guard_level / 8 粉丝牌{5 level, 6 name} /
+        # 10 礼物{1 id, 2 name, 3 num, 5 price, 6 discount_price, 7 total_coin, 8 coin_type, 12 batch_combo_id, 14 combo_total_coin}
         r["cmd"] = "SEND_GIFT"
         r["uid"], r["uname"] = pb.i(m, 1), pb.s(m, 2)
+        r["guard_level"] = pb.i(m, 5)
+        r["medal_level"] = pb.i(pb.m(m, 8), 5)
         num = pb.i(item, 3) or 1
         name = pb.s(item, 2)
         r["text"] = f"{name} x{num}"
-        # 金额：本条实付 total_coin(7) 优先，没有就 price(5)×num；免费礼物 coin_type 不在结构里，
-        # 用 price 是否为 0 判断（免费礼物 price=0）
+        coin_type = pb.s(item, 8) or ("gold" if pb.i(item, 5) > 0 else "silver")
         coin = pb.i(item, 7) or pb.i(item, 5) * num
-        r["coin"] = int(coin) if pb.i(item, 5) > 0 else 0
+        r["coin"] = int(coin) if coin_type == "gold" else 0
     elif base == "SEND_GIFT":
         r["uid"], r["uname"] = int(d.get("uid", 0)), d.get("uname", "")
         r["text"] = f"{d.get('giftName')} x{d.get('num', 1)}"
@@ -117,11 +124,23 @@ def normalize(msg: dict) -> dict | None:
         r["guard_level"] = int(d.get("guard_level", 0))
         r["coin"] = int(d.get("price", 0)) * int(d.get("num", 1))
         r["text"] = d.get("gift_name", "")
-    elif base == "USER_TOAST_MSG":
-        # 上舰/续费的另一条通知，带 unit（月/年）；GUARD_BUY 已记金额，这里 coin 置 0 避免重复计
-        r["uid"], r["uname"] = int(d.get("uid", 0)), d.get("username", "")
-        r["guard_level"] = int(d.get("guard_level", 0))
-        r["text"] = f"{d.get('role_name')} {d.get('num')}{d.get('unit')} {d.get('op_type')}"
+    elif base in ("USER_TOAST_MSG", "USER_TOAST_MSG_V2"):
+        # 上舰 / 续费通知。GUARD_BUY 报的是标价（198），这里的 price 才是实付（打折舰长 138 / 168，实测），
+        # coin 置 0 不重复计，实付价放 pay_coin 给采集端去修正那条 GUARD_BUY。
+        if base == "USER_TOAST_MSG_V2":
+            su, gi, pi = d.get("sender_uinfo") or {}, d.get("guard_info") or {}, d.get("pay_info") or {}
+            r["uid"], r["uname"] = int(su.get("uid", 0)), ((su.get("base") or {}).get("name", ""))
+            r["guard_level"] = int(gi.get("guard_level", 0))
+            r["text"] = f"{gi.get('role_name')} {pi.get('num')}{pi.get('unit')} op{gi.get('op_type')}"
+            r["pay_coin"] = int(pi.get("price", 0)) * int(pi.get("num", 1) or 1)
+            r["payflow_id"] = pi.get("payflow_id", "")
+        else:
+            r["uid"], r["uname"] = int(d.get("uid", 0)), d.get("username", "")
+            r["guard_level"] = int(d.get("guard_level", 0))
+            r["text"] = f"{d.get('role_name')} {d.get('num')}{d.get('unit')} op{d.get('op_type')}"
+            r["pay_coin"] = int(d.get("price", 0)) * int(d.get("num", 1) or 1)
+            r["payflow_id"] = d.get("payflow_id", "")
+        r["cmd"] = "USER_TOAST_MSG"
     elif base == "SUPER_CHAT_MESSAGE":
         ui = d.get("user_info") or {}
         r["uid"], r["uname"] = int(d.get("uid", 0)), ui.get("uname", "")
