@@ -21,6 +21,11 @@ class Config:
     db_path: str
     presence_gap_seconds: int
     commission_rate: float = 0.5  # 平台计提比例，官方口径 PC/安卓端 50%（税前）
+    record_dir: str = ""          # 录屏存放目录，空 = data/录屏
+    audio_device: str = ""        # 录屏音频输入设备名
+    ffmpeg_path: str = ""         # 留空自动找
+    hotkey: str = "ctrl+alt+f9"   # 录屏开关全局快捷键（Windows）
+    theme: str = "pink"
     path: str = "config.toml"
 
     @staticmethod
@@ -35,6 +40,8 @@ class Config:
             db_path=d.get("db_path", default_db),
             presence_gap_seconds=int(d.get("presence_gap_seconds", 1800)),
             commission_rate=float(d.get("commission_rate", 0.5)),
+            record_dir=d.get("record_dir", ""), audio_device=d.get("audio_device", ""),
+            ffmpeg_path=d.get("ffmpeg_path", ""), hotkey=d.get("hotkey", "ctrl+alt+f9"), theme=d.get("theme", "pink"),
             path=path,
         )
 
@@ -42,7 +49,12 @@ class Config:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         Path(self.path).write_text(
             f'room_id = {self.room_id}\ncookie = "{self.cookie}"\ndb_path = "{self.db_path}"\n'
-            f"presence_gap_seconds = {self.presence_gap_seconds}\ncommission_rate = {self.commission_rate}\n", encoding="utf-8")
+            f"presence_gap_seconds = {self.presence_gap_seconds}\ncommission_rate = {self.commission_rate}\n"
+            f'record_dir = "{self.record_dir}"\naudio_device = "{self.audio_device}"\nffmpeg_path = "{self.ffmpeg_path}"\n'
+            f'hotkey = "{self.hotkey}"\ntheme = "{self.theme}"\n', encoding="utf-8")
+
+    def record_dir_path(self) -> str:
+        return self.record_dir or str(Path(self.path).parent / "录屏")
 
 
 def cookie_dict(cookie: str) -> dict[str, str]:

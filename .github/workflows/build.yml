@@ -18,6 +18,13 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt pyinstaller pillow
       - run: pyinstaller bgs-desktop.spec
+      - name: 放入 ffmpeg（录屏用，gyan.dev essentials 构建）
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp
+          $exe = Get-ChildItem -Recurse ffmpeg_tmp -Filter ffmpeg.exe | Select-Object -First 1
+          Copy-Item $exe.FullName dist/直播后台/ffmpeg.exe
       - run: Compress-Archive -Path dist/直播后台 -DestinationPath bili-guard-stats-windows.zip
         shell: pwsh
       - uses: actions/upload-artifact@v4

@@ -10,7 +10,7 @@ from pathlib import Path
 import qrcode
 from aiohttp import web
 
-from . import queries as q
+from . import launcher, queries as q, recorder as rec
 from .collect import run as collect_run
 from .config import Config
 from .login import QrLogin
@@ -23,7 +23,7 @@ log = logging.getLogger("bgs.web")
 def make_app(cfg: Config) -> web.Application:
     app = web.Application()
     Store(cfg.db_path)  # 建表
-    state = {"cfg": cfg, "task": None, "status": {}, "qr": None}
+    state = {"cfg": cfg, "task": None, "status": {}, "qr": None, "recorder": rec.Recorder()}
 
     def conn():
         return q.connect(state["cfg"].db_path)
@@ -96,7 +96,9 @@ def make_app(cfg: Config) -> web.Application:
         from .config import cookie_dict
         uid = cookie_dict(c.cookie).get("DedeUserID", "")
         return js({"room_id": c.room_id, "logged_in": bool(uid), "uid": uid, "collecting": collecting(),
-                   "commission_rate": c.commission_rate,
+                   "commission_rate": c.commission_rate, "theme": c.theme, "hotkey": c.hotkey,
+                   "record_dir": c.record_dir, "audio_device": c.audio_device, "ffmpeg_path": c.ffmpeg_path,
+                   "platform": __import__("sys").platform,
                    "collect": state["status"], "config_path": str(c.path), "db_path": c.db_path})
 
     async def settings_post(req):
@@ -108,6 +110,9 @@ def make_app(cfg: Config) -> web.Application:
             c.presence_gap_seconds = int(d["presence_gap_seconds"])
         if "commission_rate" in d:
             c.commission_rate = max(0.0, min(1.0, float(d["commission_rate"])))
+        for k in ("record_dir", "audio_device", "ffmpeg_path", "hotkey", "theme"):
+            if k in d:
+                setattr(c, k, str(d[k]).strip())
         c.save()
         return js({"ok": True})
 
@@ -160,6 +165,83 @@ def make_app(cfg: Config) -> web.Application:
     async def official_days(_):
         return js(q.official_days(conn()))
 
+    # ---------- 直播软件 ----------
+    async def programs_get(_):
+        return js({"groups": launcher.GROUPS, "items": launcher.list_programs(conn())})
+
+    async def programs_post(req):
+        d = await req.json()
+        return js({"id": launcher.add_program(conn(), d.get("name", ""), d["path"], d.get("grp", "其他"), d.get("args", ""))})
+
+    async def programs_patch(req):
+        launcher.update_program(conn(), int(req.match_info["id"]), **(await req.json())); return js({"ok": True})
+
+    async def programs_delete(req):
+        launcher.delete_program(conn(), int(req.match_info["id"])); return js({"ok": True})
+
+    async def programs_launch_one(req):
+        row = conn().execute("SELECT * FROM programs WHERE id=?", (int(req.match_info["id"]),)).fetchone()
+        if not row:
+            return js({"error": "没有这个程序"}, 404)
+        ok, err = launcher.launch(row["path"], row["args"])
+        return js({"ok": ok, "error": err})
+
+    async def programs_launch_all(req):
+        d = await req.json() if req.can_read_body else {}
+        loop = asyncio.get_running_loop()
+        rows = launcher.checked_programs(conn())
+        results = await loop.run_in_executor(None, launcher.launch_checked, rows, bool(d.get("skip_running", True)))
+        return js({"results": results})
+
+    async def programs_folder(req):
+        row = conn().execute("SELECT path FROM programs WHERE id=?", (int(req.match_info["id"]),)).fetchone()
+        if row:
+            launcher.open_folder(row["path"])
+        return js({"ok": bool(row)})
+
+    # ---------- 录屏 ----------
+    def rec_info():
+        c = state["cfg"]
+        ff = rec.find_ffmpeg(c.ffmpeg_path)
+        st = state["recorder"].status()
+        st.update(ffmpeg=ff or "", record_dir=c.record_dir_path(), audio_device=c.audio_device,
+                  recent=rec.recent_files(c.record_dir_path()))
+        return st
+
+    async def record_status(_):
+        return js(rec_info())
+
+    async def record_devices(_):
+        ff = rec.find_ffmpeg(state["cfg"].ffmpeg_path)
+        if not ff:
+            return js({"error": "没找到 ffmpeg"}, 400)
+        loop = asyncio.get_running_loop()
+        return js({"devices": await loop.run_in_executor(None, rec.list_audio_devices, ff)})
+
+    async def record_start(_):
+        c = state["cfg"]
+        ff = rec.find_ffmpeg(c.ffmpeg_path)
+        if not ff:
+            return js({"error": "没找到 ffmpeg：把 ffmpeg.exe 放到程序旁边，或在设置里填路径"}, 400)
+        loop = asyncio.get_running_loop()
+        ok, msg = await loop.run_in_executor(None, state["recorder"].start, ff, c.record_dir_path(), c.audio_device)
+        return js({"ok": ok, "file" if ok else "error": msg}, 200 if ok else 400)
+
+    async def record_stop(_):
+        loop = asyncio.get_running_loop()
+        f = await loop.run_in_executor(None, state["recorder"].stop)
+        return js({"ok": True, "file": f})
+
+    async def record_folder(_):
+        launcher.open_folder(state["cfg"].record_dir_path() + "/"); return js({"ok": True})
+
+    async def quit_app(_):
+        async def _bye():
+            await asyncio.sleep(0.3)
+            raise web.GracefulExit()
+        asyncio.create_task(_bye())
+        return js({"ok": True})
+
     async def collect_start(_):
         if collecting():
             return js({"ok": True, "already": True})
@@ -190,6 +272,7 @@ def make_app(cfg: Config) -> web.Application:
 
     async def on_shutdown(_):
         await collect_stop(None)
+        state["recorder"].stop()
         if state["qr"]:
             await state["qr"].close()
 
@@ -204,6 +287,14 @@ def make_app(cfg: Config) -> web.Application:
         web.post("/api/schedule/{id}/toggle", schedule_toggle), web.delete("/api/schedule/{id}", schedule_delete),
         web.get("/api/reconcile", reconcile_get), web.post("/api/reconcile/fetch", reconcile_fetch),
         web.get("/api/official/days", official_days),
+        web.get("/api/programs", programs_get), web.post("/api/programs", programs_post),
+        web.patch("/api/programs/{id}", programs_patch), web.delete("/api/programs/{id}", programs_delete),
+        web.post("/api/programs/{id}/launch", programs_launch_one), web.post("/api/programs/{id}/folder", programs_folder),
+        web.post("/api/programs/launch", programs_launch_all),
+        web.get("/api/record", record_status), web.get("/api/record/devices", record_devices),
+        web.post("/api/record/start", record_start), web.post("/api/record/stop", record_stop),
+        web.post("/api/record/folder", record_folder),
+        web.post("/api/quit", quit_app),
         web.get("/api/status", status), web.post("/api/settings", settings_post), web.post("/api/logout", logout),
         web.post("/api/login/qr", login_qr), web.get("/api/login/poll", login_poll),
         web.post("/api/collect/start", collect_start), web.post("/api/collect/stop", collect_stop),
@@ -212,10 +303,38 @@ def make_app(cfg: Config) -> web.Application:
     return app
 
 
+def _install_hotkey(app: web.Application) -> None:
+    """Windows 上注册全局快捷键切换录屏。keyboard 库不可用就跳过。"""
+    import sys
+    if sys.platform != "win32":
+        return
+    try:
+        import keyboard  # type: ignore
+    except ImportError:
+        return
+    state = app["state"]
+
+    def toggle():
+        c, r = state["cfg"], state["recorder"]
+        if r.running():
+            r.stop()
+        else:
+            ff = rec.find_ffmpeg(c.ffmpeg_path)
+            if ff:
+                r.start(ff, c.record_dir_path(), c.audio_device)
+
+    try:
+        keyboard.add_hotkey(state["cfg"].hotkey or "ctrl+alt+f9", toggle)
+        log.info("录屏快捷键：%s", state["cfg"].hotkey)
+    except Exception as e:  # noqa: BLE001
+        log.warning("注册快捷键失败：%s", e)
+
+
 def main(port: int = 8765, open_browser: bool = False) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = Config.load()
     app = make_app(cfg)
+    _install_hotkey(app)
     if open_browser:
         import threading
         import webbrowser

@@ -2,3 +2,5 @@ aiohttp>=3.9
 brotli>=1.1
 qrcode>=7
 pillow>=10
+psutil>=5.9
+keyboard>=0.13; sys_platform == "win32"

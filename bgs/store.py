@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS official_gifts (
 );
 CREATE INDEX IF NOT EXISTS idx_official_day ON official_gifts(day);
 
+CREATE TABLE IF NOT EXISTS programs (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,         -- 可执行文件完整路径
+    args TEXT DEFAULT '',
+    grp TEXT DEFAULT '其他',    -- 分组：直播推流 / 虚拟形象 / 音频声卡 / 唱歌音乐 / 其他
+    checked INTEGER DEFAULT 1,  -- 一键启动是否勾选
+    sort INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS schedule (
     id INTEGER PRIMARY KEY,
     date TEXT NOT NULL,         -- YYYY-MM-DD

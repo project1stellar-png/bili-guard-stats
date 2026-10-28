@@ -8,12 +8,21 @@
   :root { --bg:#f6f7fb; --card:#fff; --fg:#1b1d23; --muted:#6b7280; --line:#e5e7eb; --accent:#ec5f8e; --accent-soft:#fdeaf1; --g1:#b45309; --g2:#7c3aed; --g3:#2563eb; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#111318; --card:#1a1d24; --fg:#e8eaf0; --muted:#9aa0ad; --line:#2a2e38; --accent-soft:#3a1f2a; } }
   * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,"PingFang SC","Helvetica Neue",sans-serif; }
-  header { display:flex; align-items:center; gap:8px; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; flex-wrap:wrap }
-  header h1 { font-size:16px; margin:0 12px 0 0 }
-  nav button { background:none; border:1px solid var(--line); border-radius:999px; padding:4px 12px; color:var(--fg); cursor:pointer }
-  nav button.on { background:var(--accent); border-color:var(--accent); color:#fff }
-  header select { margin-left:auto; padding:4px 8px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg) }
-  main { padding:16px; max-width:1200px; margin:0 auto }
+  :root[data-accent="blue"] { --accent:#3b82f6; --accent-soft:#e8f0fe } :root[data-accent="green"] { --accent:#22a06b; --accent-soft:#e6f6ee } :root[data-accent="slate"] { --accent:#475569; --accent-soft:#e9edf2 }
+  body { display:flex; min-height:100vh }
+  aside { width:200px; flex:none; background:var(--card); border-right:1px solid var(--line); padding:16px 12px; display:flex; flex-direction:column; gap:4px; position:sticky; top:0; height:100vh; box-sizing:border-box }
+  aside h1 { font-size:15px; margin:4px 8px 14px; display:flex; align-items:center; gap:8px } aside h1 .logo { width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:14px }
+  aside .sec { font-size:11px; color:var(--muted); margin:10px 8px 2px }
+  nav button { display:block; width:100%; text-align:left; background:none; border:none; border-radius:8px; padding:7px 10px; color:var(--fg); cursor:pointer; font-size:13px }
+  nav button.on { background:var(--accent-soft); color:var(--accent); font-weight:600 }
+  aside .foot { margin-top:auto; font-size:11px; color:var(--muted); padding:8px; line-height:1.7 }
+  .swatches { display:flex; gap:6px; margin:4px 0 } .swatches span { width:16px; height:16px; border-radius:50%; cursor:pointer; border:2px solid transparent } .swatches span.on { border-color:var(--fg) }
+  .content { flex:1; min-width:0 }
+  header { display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:5; flex-wrap:wrap }
+  header h2 { margin:0; font-size:16px }
+  header select { padding:4px 8px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg) }
+  main { padding:16px; max-width:1200px }
+  @media (max-width:720px) { body { display:block } aside { width:auto; height:auto; position:static; flex-direction:row; flex-wrap:wrap; border-right:none; border-bottom:1px solid var(--line) } aside h1, aside .sec, aside .foot { display:none } nav { display:flex; flex-wrap:wrap; gap:4px } nav button { width:auto } }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px }
   .card .k { color:var(--muted); font-size:12px } .card .v { font-size:22px; font-weight:600 }
@@ -33,17 +42,28 @@
 </style>
 </head>
 <body>
-<header>
-  <h1>直播后台</h1>
+<aside>
+  <h1><span class="logo">播</span>直播后台</h1>
   <nav id="nav"></nav>
+  <div class="foot">
+    <div class="swatches" id="swatches"></div>
+    <div id="footInfo"></div>
+    <div><span class="link" onclick="if(confirm('退出后台程序？采集和录屏都会停止。')) api('/api/quit',{method:'POST'})">退出程序</span></div>
+  </div>
+</aside>
+<div class="content">
+<header>
+  <h2 id="title"></h2>
   <label class="muted" style="margin-left:auto;font-size:12px;cursor:pointer"><input type="checkbox" id="net" onchange="NET=this.checked;localStorage.setItem('net',NET?'1':'0');render()"> 抽成后</label>
   <span id="dot" class="muted" style="font-size:12px"></span>
   <select id="session" style="margin-left:8px"></select>
 </header>
 <main id="main"></main>
+</div>
 <dialog id="dlg"></dialog>
 <script>
-const TABS = [["settings","设置"],["sessions","场次"],["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单"],["monthly","记账"],["reconcile","对账"],["schedule","排播"]];
+const TABS = [["software","直播软件","开播"],["sessions","场次","直播数据"],["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单","直播间管理"],["monthly","记账","个人安排"],["reconcile","对账"],["schedule","排播"],["settings","设置","系统"]];
+const THEMES = {pink:"#ec5f8e", blue:"#3b82f6", green:"#22a06b", slate:"#475569"};
 const $ = s => document.querySelector(s);
 let RATE = 0.5, NET = localStorage.getItem("net") === "1";
 const yuan = c => { const v = NET ? c*(1-RATE) : c; return (v/1000).toFixed(v%1000?1:0) + " 元"; };
@@ -54,13 +74,15 @@ const tag = g => g ? `<span class="tag g${g}">${{1:"总督",2:"提督",3:"舰长
 const user = (uid,name) => `<span class="link" onclick="profile(${uid})">${esc(name||"?")}</span>`;
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const api = (p,o) => fetch(p,o).then(r=>r.json());
-let tab = localStorage.getItem("tab") || "settings", sessionId = "";
+let tab = localStorage.getItem("tab") || "software", sessionId = "";
 
 async function init(){
   const ss = await api("/api/sessions");
   $("#session").innerHTML = `<option value="">全部场次</option>` + ss.map(s=>`<option value="${s.id}">${dts(s.started_at)} ${new Date(s.started_at*1000).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})} · ${yuan(s.coin)} · ${s.danmu}弹幕</option>`).join("");
   $("#session").onchange = e => { sessionId = e.target.value; render(); };
-  $("#nav").innerHTML = TABS.map(([k,n])=>`<button data-k="${k}">${n}</button>`).join("");
+  $("#nav").innerHTML = TABS.map(([k,n,sec])=>(sec?`<div class="sec">${sec}</div>`:"")+`<button data-k="${k}">${n}</button>`).join("");
+  $("#swatches").innerHTML = Object.entries(THEMES).map(([k,c])=>`<span style="background:${c}" data-t="${k}" title="${k}"></span>`).join("");
+  $("#swatches").onclick = e => { const t = e.target.dataset.t; if(!t) return; applyTheme(t); api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({theme:t})}); };
   $("#nav").onclick = e => { if(e.target.dataset.k){ tab=e.target.dataset.k; localStorage.setItem("tab",tab); render(); } };
   render();
   pollStatus();
@@ -70,6 +92,8 @@ async function pollStatus(){
     const st = await api("/api/status");
     const c = st.collect || {};
     RATE = st.commission_rate ?? 0.5; $("#net").checked = NET;
+    if(st.theme && document.documentElement.dataset.accent !== st.theme) applyTheme(st.theme);
+    $("#footInfo").innerHTML = `${st.collecting ? "● 采集中" : "○ 未采集"}<br>房间 ${st.room_id||"-"} · ${st.logged_in ? "已登录" : "未登录"}`;
     $("#dot").textContent = st.collecting ? (c.connected ? `● 采集中 · ${c.events||0} 条` : `◐ 连接中 ${c.error?("· "+c.error.slice(0,40)):""}`) : "○ 未采集";
     $("#dot").style.color = st.collecting && c.connected ? "#16a34a" : "";
   } catch(e) {}
@@ -90,6 +114,10 @@ async function settings(){
   <p class="muted">开播前点「开始采集」，它会先拉一次舰长名单，然后持续记弹幕 / 礼物 / 上舰 / SC / 进场，断线自动重连。关掉这个程序就停止。</p>
   <h2>抽成口径</h2>
   <div class="row"><input id="rate" type="number" min="0" max="100" step="1" value="${Math.round((st.commission_rate??0.5)*100)}" style="width:90px"> <span class="muted" style="align-self:center">% 平台计提（官方口径 PC / 安卓端 50%，税前）。勾上顶栏「抽成后」时，所有金额按 1 − 比例 换算。</span><button class="btn ghost" onclick="saveRate()">保存</button></div>
+  <h2>录屏</h2>
+  <div class="row"><input id="recDir" placeholder="录屏保存目录（留空 = 程序旁 data/录屏）" value="${esc(st.record_dir||"")}" style="flex:1;min-width:240px"><input id="audioDev" placeholder="音频输入设备名" value="${esc(st.audio_device||"")}" style="min-width:200px"><button class="btn ghost" onclick="pickDevice()">列出设备</button></div>
+  <div class="row"><input id="ffPath" placeholder="ffmpeg 路径（留空自动找）" value="${esc(st.ffmpeg_path||"")}" style="flex:1;min-width:240px"><input id="hotkey" placeholder="快捷键" value="${esc(st.hotkey||"ctrl+alt+f9")}" style="width:140px"><button class="btn ghost" onclick="saveRec()">保存</button></div>
+  <p class="muted">快捷键只在 Windows 生效，改了要重启程序。</p>
   <h2>B站登录</h2>
   <div class="row"><button class="btn" onclick="startLogin()">${st.logged_in ? "重新扫码" : "扫码登录"}</button>${st.logged_in ? `<button class="btn ghost" onclick="api('/api/logout',{method:'POST'}).then(render)">退出登录</button>` : ""}</div>
   <div id="qrbox"></div>
@@ -98,6 +126,67 @@ async function settings(){
 async function saveRoom(){
   await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({room_id:$("#room").value})});
   render();
+}
+async function software(){
+  const [pg, rc] = await Promise.all([api("/api/programs"), api("/api/record")]);
+  const items = pg.items, checked = items.filter(x=>x.checked).length;
+  const fmt = t => new Date(t*1000).toLocaleString("zh-CN",{hour12:false});
+  const recBtn = rc.recording ? `<button class="btn" style="background:#dc2626" onclick="api('/api/record/stop',{method:'POST'}).then(render)">■ 停止录制 ${Math.floor(rc.elapsed/60)}:${String(rc.elapsed%60).padStart(2,"0")}</button>`
+                              : `<button class="btn" onclick="api('/api/record/start',{method:'POST'}).then(r=>{ if(r.error) alert(r.error); render(); })" ${rc.ffmpeg?"":"disabled title='没找到 ffmpeg'"}>● 开始录制</button>`;
+  const groups = pg.groups.map(g => {
+    const rows = items.filter(x=>x.grp===g);
+    if(!rows.length) return "";
+    return `<div class="card" style="padding:0;margin-bottom:12px"><div style="display:flex;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line)"><b>${g}</b><span class="muted" style="margin-left:8px">${rows.filter(x=>x.checked).length}/${rows.length} 已选</span><span style="margin-left:auto"><button class="btn ghost" onclick="setGroup('${g}',1)">全选</button> <button class="btn ghost" onclick="setGroup('${g}',0)">清空</button></span></div>
+    ${rows.map(x=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line)">
+      <input type="checkbox" ${x.checked?"checked":""} onchange="api('/api/programs/${x.id}',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({checked:this.checked?1:0})})">
+      <div style="flex:1;min-width:0"><b>${esc(x.name)}</b> ${x.running?'<span class="tag" style="background:#16a34a">运行中</span>':'<span class="tag" style="background:#9ca3af">未启动</span>'} ${x.exists?"":'<span class="tag" style="background:#dc2626">文件不存在</span>'}<div class="muted" style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.path)} ${x.args?esc(x.args):""}</div></div>
+      <button class="btn ghost" onclick="api('/api/programs/${x.id}/launch',{method:'POST'}).then(r=>{ if(r.error) alert(r.error); setTimeout(render,1500); })">启动</button>
+      <button class="btn ghost" onclick="api('/api/programs/${x.id}/folder',{method:'POST'})">文件夹</button>
+      <button class="btn ghost" onclick="if(confirm('删除 ${esc(x.name)}？')) api('/api/programs/${x.id}',{method:'DELETE'}).then(render)">删除</button></div>`).join("")}</div>`;
+  }).join("");
+  return `<div class="card" style="margin-bottom:12px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>屏幕录制</b><span class="muted">存到 ${esc(rc.record_dir)} · 声音：${esc(rc.audio_device||"无")} · 快捷键 Ctrl+Alt+F9（Windows）</span><span style="margin-left:auto">${recBtn} <button class="btn ghost" onclick="api('/api/record/folder',{method:'POST'})">打开文件夹</button></span></div>
+    ${rc.error?`<div style="color:#dc2626;font-size:12px;margin-top:6px">${esc(rc.error)}</div>`:""}
+    ${rc.recent.length?`<div class="muted" style="font-size:12px;margin-top:6px">最近：${rc.recent.slice(0,4).map(f=>`${esc(f.name)}（${f.size_mb} MB）`).join(" · ")}</div>`:""}
+    ${rc.ffmpeg?"":'<div class="muted" style="font-size:12px;margin-top:6px">没找到 ffmpeg：Windows 包自带；手动运行时把 ffmpeg 放到 PATH 或在设置里填路径。</div>'}</div>
+  <div class="row" style="align-items:center"><button class="btn" onclick="launchAll()">🚀 一键启动（${checked} 个）</button><button class="btn ghost" onclick="setAll(1)">全选</button><button class="btn ghost" onclick="setAll(0)">全不选</button>
+    <label class="muted" style="font-size:12px"><input type="checkbox" id="skipRun" ${localStorage.getItem("skipRun")!=="0"?"checked":""} onchange="localStorage.setItem('skipRun',this.checked?'1':'0')"> 已在运行的跳过</label>
+    <button class="btn ghost" onclick="render()">刷新状态</button><span id="launchMsg" class="muted" style="font-size:12px"></span>
+    <span style="margin-left:auto"><button class="btn ghost" onclick="addProgramDlg()">＋ 添加程序</button></span></div>
+  ${groups || '<div class="empty">还没有登记程序，点右上角「添加程序」，把 OBS、直播姬、VTube Studio 这些的 exe 路径填进来。</div>'}`;
+}
+async function setAll(v){ const pg = await api("/api/programs"); await Promise.all(pg.items.map(x=>api(`/api/programs/${x.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({checked:v})}))); render(); }
+async function setGroup(g,v){ const pg = await api("/api/programs"); await Promise.all(pg.items.filter(x=>x.grp===g).map(x=>api(`/api/programs/${x.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({checked:v})}))); render(); }
+async function launchAll(){
+  $("#launchMsg").textContent = "启动中…";
+  const r = await api("/api/programs/launch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({skip_running:$("#skipRun").checked})});
+  const bad = r.results.filter(x=>!x.ok), skipped = r.results.filter(x=>x.skipped).length;
+  $("#launchMsg").textContent = `已启动 ${r.results.length-bad.length-skipped} 个，跳过 ${skipped} 个` + (bad.length?`，失败：${bad.map(x=>x.name+"("+x.error+")").join("、")}`:"");
+  setTimeout(render, 2000);
+}
+function addProgramDlg(){
+  const dlg = $("#dlg");
+  dlg.innerHTML = `<h2 style="margin-top:0">添加程序</h2>
+    <div class="row"><input id="pName" placeholder="名字，如 OBS Studio" style="flex:1"></div>
+    <div class="row"><input id="pPath" placeholder="exe 完整路径，如 D:\\steam\\...\\obs64.exe（可从资源管理器复制路径粘过来）" style="flex:1"></div>
+    <div class="row"><select id="pGrp">${["直播推流","虚拟形象","音频声卡","唱歌音乐","其他"].map(g=>`<option>${g}</option>`).join("")}</select><input id="pArgs" placeholder="启动参数（可选）" style="flex:1"></div>
+    <p><button class="btn" onclick="addProgram()">添加</button> <button class="btn ghost" onclick="dlg.close()">取消</button></p>`;
+  dlg.showModal();
+}
+async function addProgram(){
+  const path = $("#pPath").value.trim(); if(!path) return;
+  await api("/api/programs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("#pName").value, path, grp:$("#pGrp").value, args:$("#pArgs").value})});
+  $("#dlg").close(); render();
+}
+async function saveRec(){
+  await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({record_dir:$("#recDir").value, audio_device:$("#audioDev").value, ffmpeg_path:$("#ffPath").value, hotkey:$("#hotkey").value})});
+  render();
+}
+async function pickDevice(){
+  const r = await api("/api/record/devices");
+  if(r.error){ alert(r.error); return; }
+  if(!r.devices.length){ alert("没有找到音频输入设备"); return; }
+  const v = prompt("可用设备：\n" + r.devices.map((d,i)=>`${i+1}. ${d}`).join("\n") + "\n\n输入编号：", "1");
+  const d = r.devices[(+v)-1]; if(d){ $("#audioDev").value = d; }
 }
 async function saveRate(){
   await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({commission_rate:(+$("#rate").value)/100})});
@@ -135,12 +224,14 @@ async function startLogin(){
   };
   loginTimer = setTimeout(tick, 2000);
 }
+function applyTheme(t){ document.documentElement.dataset.accent = t; document.querySelectorAll("#swatches span").forEach(x=>x.classList.toggle("on",x.dataset.t===t)); }
 let renderSeq = 0;
 async function render(){
   const seq = ++renderSeq;
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.k===tab));
+  $("#title").textContent = (TABS.find(t=>t[0]===tab)||[])[1] || "";
   $("#main").innerHTML = `<div class="empty">加载中…</div>`;
-  const html = await ({settings,sessions,guards,flow,gifts,attendance,thanks,monthly,reconcile,schedule})[tab]();
+  const html = await ({software,settings,sessions,guards,flow,gifts,attendance,thanks,monthly,reconcile,schedule})[tab]();
   if (seq === renderSeq) $("#main").innerHTML = html;
 }
 const table = (heads, rows, empty="暂无数据") => rows.length ? `<div class="wrap"><table><tr>${heads.map(h=>`<th class="${h.startsWith("#")?"num":""}">${h.replace(/^#/,"")}</th>`).join("")}</tr>${rows.join("")}</table></div>` : `<div class="empty">${empty}</div>`;
