@@ -1,3 +1,4 @@
+import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +12,8 @@ class Config:
     presence_gap_seconds: int
 
     @staticmethod
-    def load(path: str = "config.toml") -> "Config":
+    def load(path: str | None = None) -> "Config":
+        path = path or os.environ.get("BGS_CONFIG", "config.toml")
         p = Path(path)
         if not p.exists():
             raise SystemExit(f"找不到 {path}，先复制 config.example.toml 填好")

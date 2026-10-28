@@ -39,6 +39,15 @@ CREATE TABLE IF NOT EXISTS guard_snapshots (
     raw TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_snap_room_time ON guard_snapshots(room_id, taken_at);
+
+CREATE TABLE IF NOT EXISTS schedule (
+    id INTEGER PRIMARY KEY,
+    date TEXT NOT NULL,         -- YYYY-MM-DD
+    start TEXT,                 -- HH:MM
+    title TEXT NOT NULL,
+    note TEXT,
+    done INTEGER DEFAULT 0
+);
 """
 
 

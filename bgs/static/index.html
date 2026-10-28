@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>直播后台</title>
+<style>
+  :root { --bg:#f6f7fb; --card:#fff; --fg:#1b1d23; --muted:#6b7280; --line:#e5e7eb; --accent:#ec5f8e; --accent-soft:#fdeaf1; --g1:#b45309; --g2:#7c3aed; --g3:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#111318; --card:#1a1d24; --fg:#e8eaf0; --muted:#9aa0ad; --line:#2a2e38; --accent-soft:#3a1f2a; } }
+  * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,"PingFang SC","Helvetica Neue",sans-serif; }
+  header { display:flex; align-items:center; gap:8px; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; flex-wrap:wrap }
+  header h1 { font-size:16px; margin:0 12px 0 0 }
+  nav button { background:none; border:1px solid var(--line); border-radius:999px; padding:4px 12px; color:var(--fg); cursor:pointer }
+  nav button.on { background:var(--accent); border-color:var(--accent); color:#fff }
+  header select { margin-left:auto; padding:4px 8px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg) }
+  main { padding:16px; max-width:1200px; margin:0 auto }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px }
+  .card .k { color:var(--muted); font-size:12px } .card .v { font-size:22px; font-weight:600 }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden }
+  th,td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap } th { color:var(--muted); font-weight:500; font-size:12px }
+  tr:last-child td { border-bottom:none } td.num, th.num { text-align:right }
+  .tag { display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; color:#fff } .g1{background:var(--g1)} .g2{background:var(--g2)} .g3{background:var(--g3)}
+  .link { color:var(--accent); cursor:pointer; text-decoration:underline dotted }
+  .wrap { overflow-x:auto } .muted { color:var(--muted) } .empty { padding:24px; text-align:center; color:var(--muted) }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px } input,textarea { padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg) }
+  .btn { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer } .btn.ghost { background:none; color:var(--muted); border:1px solid var(--line) }
+  h2 { font-size:15px; margin:18px 0 8px } pre.thanks { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; white-space:pre-wrap }
+  .bars { display:flex; gap:2px; align-items:flex-end; height:60px } .bars div { flex:1; background:var(--accent); border-radius:2px 2px 0 0; min-height:2px }
+  dialog { border:none; border-radius:12px; background:var(--card); color:var(--fg); max-width:560px; width:92vw; max-height:85vh; overflow:auto; padding:18px }
+  dialog::backdrop { background:rgba(0,0,0,.4) }
+  .done td { text-decoration:line-through; color:var(--muted) }
+</style>
+</head>
+<body>
+<header>
+  <h1>直播后台</h1>
+  <nav id="nav"></nav>
+  <select id="session"></select>
+</header>
+<main id="main"></main>
+<dialog id="dlg"></dialog>
+<script>
+const TABS = [["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单"],["monthly","记账"],["schedule","排播"]];
+const $ = s => document.querySelector(s);
+const yuan = c => (c/1000).toFixed(c%1000?1:0) + " 元";
+const dt = t => new Date(t*1000).toLocaleString("zh-CN",{hour12:false});
+const dts = t => new Date(t*1000).toLocaleDateString("zh-CN");
+const tag = g => g ? `<span class="tag g${g}">${{1:"总督",2:"提督",3:"舰长"}[g]}</span>` : "";
+const user = (uid,name) => `<span class="link" onclick="profile(${uid})">${esc(name||"?")}</span>`;
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const api = (p,o) => fetch(p,o).then(r=>r.json());
+let tab = localStorage.getItem("tab") || "guards", sessionId = "";
+
+async function init(){
+  const ss = await api("/api/sessions");
+  $("#session").innerHTML = `<option value="">全部场次</option>` + ss.map(s=>`<option value="${s.id}">${dts(s.started_at)} ${new Date(s.started_at*1000).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})} · ${yuan(s.coin)} · ${s.danmu}弹幕</option>`).join("");
+  $("#session").onchange = e => { sessionId = e.target.value; render(); };
+  $("#nav").innerHTML = TABS.map(([k,n])=>`<button data-k="${k}">${n}</button>`).join("");
+  $("#nav").onclick = e => { if(e.target.dataset.k){ tab=e.target.dataset.k; localStorage.setItem("tab",tab); render(); } };
+  render();
+}
+let renderSeq = 0;
+async function render(){
+  const seq = ++renderSeq;
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.k===tab));
+  $("#main").innerHTML = `<div class="empty">加载中…</div>`;
+  const html = await ({guards,flow,gifts,attendance,thanks,monthly,schedule})[tab]();
+  if (seq === renderSeq) $("#main").innerHTML = html;
+}
+const table = (heads, rows, empty="暂无数据") => rows.length ? `<div class="wrap"><table><tr>${heads.map(h=>`<th class="${h.startsWith("#")?"num":""}">${h.replace(/^#/,"")}</th>`).join("")}</tr>${rows.join("")}</table></div>` : `<div class="empty">${empty}</div>`;
+const td = (v,num) => `<td class="${num?"num":""}">${v}</td>`;
+
+async function guards(){
+  const g = await api("/api/guards");
+  const n = {1:0,2:0,3:0}; g.forEach(x=>n[x.guard_level]++);
+  return `<div class="cards">${[["大航海总数",g.length],["总督",n[1]],["提督",n[2]],["舰长",n[3]],["本工具期间有互动",g.filter(x=>x.attend).length]].map(([k,v])=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("")}</div>
+  ${table(["等级","用户","#粉丝牌","#陪伴天数","#出勤","#在场(h)","#弹幕","#消费"], g.map(x=>`<tr>${td(tag(x.guard_level))}${td(user(x.uid,x.uname))}${td(x.medal_level??"-",1)}${td(x.accompany_days??"-",1)}${td(x.attend+"/"+x.total_sessions,1)}${td(x.presence_h,1)}${td(x.danmu,1)}${td(yuan(x.coin),1)}</tr>`), "还没有舰长快照，先跑 bgs.collect")}`;
+}
+async function flow(){
+  const f = await api("/api/flow?session="+sessionId);
+  return table(["时间","类型","用户","内容","#金额"], f.map(x=>`<tr>${td(dt(x.ts))}${td({SEND_GIFT:"礼物",GUARD_BUY:"上舰",SUPER_CHAT_MESSAGE:"SC"}[x.cmd])}${td(tag(x.guard_level)+" "+user(x.uid,x.uname))}${td(esc(x.text))}${td(yuan(x.coin),1)}</tr>`), "本范围内没有付费流水");
+}
+async function gifts(){
+  const g = await api("/api/gifts?session="+sessionId);
+  return table(["#","用户","#总消费","#SC","#上舰次数","#事件数"], g.map((x,i)=>`<tr>${td(i+1)}${td(tag(x.guard_level)+" "+user(x.uid,x.uname))}${td(yuan(x.coin),1)}${td(x.sc,1)}${td(x.guard_buy,1)}${td(x.n,1)}</tr>`), "本范围内没有付费记录");
+}
+async function attendance(){
+  const a = await api("/api/attendance");
+  return `<p class="muted">出勤 = 该场有过弹幕 / 礼物 / 点赞等互动；在场时长按互动间隔估算。</p>` + table(["用户","#出勤","#在场(h)","#弹幕","首次出现","最近出现"], a.map(x=>`<tr>${td(tag(x.guard_level)+" "+user(x.uid,x.uname))}${td(x.attend+"/"+x.total_sessions,1)}${td(x.presence_h,1)}${td(x.danmu,1)}${td(dts(x.first_seen))}${td(dt(x.last_seen))}</tr>`));
+}
+async function thanks(){
+  const t = await api("/api/thanks?session="+sessionId);
+  const lines = [];
+  if(t.guard.length) lines.push("【上舰】"+t.guard.map(x=>`${x.uname}（${x.text||{1:"总督",2:"提督",3:"舰长"}[x.guard_level]}）`).join("、"));
+  if(t.sc.length) lines.push("【SC】"+t.sc.map(x=>`${x.uname} ${yuan(x.coin)}`).join("、"));
+  if(t.gift.length) lines.push("【礼物】"+t.gift.map(x=>`${x.uname} ${yuan(x.coin)}`).join("、"));
+  const text = lines.length ? "感谢今天的支持！\n"+lines.join("\n") : "这场没有付费记录";
+  return `<div class="row"><button class="btn" onclick="navigator.clipboard.writeText(document.querySelector('pre.thanks').innerText)">复制感谢单</button><span class="muted">${sessionId?"当前所选场次":"默认最近一场"}</span></div><pre class="thanks">${esc(text)}</pre>`;
+}
+async function monthly(){
+  const m = await api("/api/monthly");
+  return m.length ? m.map(x=>`<h2>${x.month} <span class="muted">· ${x.sessions} 场 · ${x.payers} 人付费</span></h2>
+    <div class="cards">${[["总收入",yuan(x.total)],["礼物",yuan(x.gift)],["SC",yuan(x.sc)],["大航海",yuan(x.guard)]].map(([k,v])=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("")}</div>
+    ${table(["#","用户","#消费"], x.top.map((u,i)=>`<tr>${td(i+1)}${td(user(u.uid,u.uname))}${td(yuan(u.coin),1)}</tr>`))}`).join("") : `<div class="empty">暂无数据</div>`;
+}
+async function schedule(){
+  const s = await api("/api/schedule");
+  const today = new Date().toISOString().slice(0,10);
+  return `<div class="row"><input type="date" id="sd" value="${today}"><input type="time" id="st" value="20:00"><input id="sti" placeholder="标题，如：周五杂谈" style="flex:1;min-width:160px"><input id="sn" placeholder="备注"><button class="btn" onclick="addSched()">添加</button></div>
+  ${table(["日期","时间","标题","备注",""], s.map(x=>`<tr class="${x.done?"done":""}">${td(x.date)}${td(x.start||"")}${td(esc(x.title))}${td(esc(x.note||""))}<td><button class="btn ghost" onclick="api('/api/schedule/${x.id}/toggle',{method:'POST'}).then(render)">${x.done?"撤销":"完成"}</button> <button class="btn ghost" onclick="api('/api/schedule/${x.id}',{method:'DELETE'}).then(render)">删除</button></td></tr>`), "还没有排播安排")}`;
+}
+async function addSched(){
+  const title = $("#sti").value.trim(); if(!title) return;
+  await api("/api/schedule",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date:$("#sd").value,start:$("#st").value,title,note:$("#sn").value})});
+  render();
+}
+async function profile(uid){
+  const p = await api("/api/user/"+uid);
+  const dlg = $("#dlg");
+  if(p.error){ dlg.innerHTML = `<p>uid ${uid} 在本工具运行期间没有互动记录。</p><button class="btn" onclick="dlg.close()">关闭</button>`; return dlg.showModal(); }
+  const hrs = Array.from({length:24},(_,h)=>p.active_hours[h]||0), mx = Math.max(1,...hrs);
+  dlg.innerHTML = `<h2 style="margin-top:0">${tag(p.guard_level)} ${esc(p.uname)} <span class="muted">uid ${p.uid}</span></h2>
+    <p>${esc(p.description)}</p>
+    <div class="cards">${[["消费",yuan(p.coin)],["出勤",p.attend+"/"+p.total_sessions],["在场(h)",p.presence_h],["弹幕",p.danmu],["粉丝牌",p.medal_level||"-"]].map(([k,v])=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("")}</div>
+    <div class="k muted">活跃时段（0–23 点）</div><div class="bars">${hrs.map((v,h)=>`<div title="${h}点 ${v}次" style="height:${v/mx*100}%"></div>`).join("")}</div>
+    ${p.guard_since?`<p class="muted">首次出现在舰长名单：${dts(p.guard_since)}</p>`:""}
+    <h2>最近记录</h2>${table(["时间","类型","内容","#金额"], p.recent.map(x=>`<tr>${td(dt(x.ts))}${td(x.cmd)}${td(esc(x.text))}${td(x.coin?yuan(x.coin):"",1)}</tr>`))}
+    <p><button class="btn" onclick="dlg.close()">关闭</button></p>`;
+  dlg.showModal();
+}
+init();
+</script>
+</body>
+</html>
