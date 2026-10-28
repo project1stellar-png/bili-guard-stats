@@ -49,6 +49,20 @@ CREATE TABLE IF NOT EXISTS metrics (
 );
 CREATE INDEX IF NOT EXISTS idx_metrics ON metrics(session_id, key, ts);
 
+CREATE TABLE IF NOT EXISTS official_gifts (
+    id TEXT PRIMARY KEY,        -- 官方流水 id
+    day TEXT NOT NULL,          -- YYYY-MM-DD（拉取时的 begin_time）
+    ts REAL,
+    uid INTEGER,
+    uname TEXT,
+    gift_id INTEGER,
+    gift_name TEXT,
+    gift_num INTEGER,
+    coin INTEGER,               -- 金瓜子（normal_gold）
+    raw TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_official_day ON official_gifts(day);
+
 CREATE TABLE IF NOT EXISTS schedule (
     id INTEGER PRIMARY KEY,
     date TEXT NOT NULL,         -- YYYY-MM-DD
@@ -79,14 +93,34 @@ class Store:
         self.conn.commit()
 
     def add_event(self, session_id: int, cmd: str, uid: int, uname: str, *, coin=0,
-                  guard_level=0, medal_level=0, text="", raw=None, ts=None) -> None:
-        self.conn.execute(
+                  guard_level=0, medal_level=0, text="", raw=None, ts=None) -> int:
+        cur = self.conn.execute(
             "INSERT INTO events(session_id, ts, cmd, uid, uname, coin, guard_level, medal_level, text, raw)"
             " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (session_id, ts or time.time(), cmd, uid, uname, coin, guard_level, medal_level, text,
              json.dumps(raw, ensure_ascii=False) if raw is not None else None),
         )
         self.conn.commit()
+        return cur.lastrowid
+
+    def upsert_official_gifts(self, day: str, items: list[dict]) -> int:
+        rows = []
+        for it in items:
+            t = it.get("time")
+            ts = None
+            if isinstance(t, str):
+                try:
+                    ts = time.mktime(time.strptime(t, "%Y-%m-%d %H:%M:%S"))
+                except ValueError:
+                    ts = None
+            elif isinstance(t, (int, float)):
+                ts = float(t)
+            rows.append((str(it.get("id")), day, ts, it.get("uid"), it.get("uname"), it.get("gift_id"),
+                         it.get("gift_name"), it.get("gift_num"), it.get("normal_gold"),
+                         json.dumps(it, ensure_ascii=False)))
+        self.conn.executemany("INSERT OR REPLACE INTO official_gifts VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+        self.conn.commit()
+        return len(rows)
 
     def add_metric(self, session_id: int, key: str, value: int) -> None:
         self.conn.execute("INSERT INTO metrics(session_id, ts, key, value) VALUES (?,?,?,?)",

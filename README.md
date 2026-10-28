@@ -42,6 +42,7 @@ cp config.example.toml config.toml   # 填 room_id
 | 打卡 | 每人出勤场次、首末出现时间 |
 | 感谢单 | 一键复制本场上舰 / SC / 礼物的感谢文案 |
 | 记账 | 按月汇总收入（礼物 / SC / 大航海）和月度 Top 10 |
+| 对账 | 拉主播后台的官方礼物流水（需主播本人登录），和本地采集按人比对，差值标红 |
 | 排播 | 简单的排播清单，本地保存 |
 
 用户画像弹窗：一句话描述 + 消费 / 出勤 / 在场 / 弹幕 / 粉丝牌 + 24 小时活跃分布 + 最近记录。
@@ -80,13 +81,21 @@ cookie 一般几个月有效，过期了重新扫一次。不要把 config.toml 
 | 消息 | 处理 |
 | --- | --- |
 | DANMU_MSG | 弹幕，uid / 昵称 / 粉丝牌 / 舰长等级 |
-| SEND_GIFT | 礼物，只计金瓜子 |
+| SEND_GIFT / SEND_GIFT_V2 | 礼物，只计金瓜子；V2 是 protobuf，解法参考 realtime_liushui |
 | GUARD_BUY / USER_TOAST_MSG | 上舰 / 续费，金额只记 GUARD_BUY 一次 |
 | SUPER_CHAT_MESSAGE | SC |
 | INTERACT_WORD_V2 | 进场 / 关注 / 分享，protobuf，用 `bgs/pb.py` 的通用 wire 解码（字段布局是实测推的） |
 | ENTRY_EFFECT / LIKE_INFO_V3_CLICK | 舰长进场特效 / 点赞，作在场信号 |
 | ONLINE_RANK_V3 | 高能榜前几名（protobuf），作在场信号，同一人 5 分钟内只记一次 |
 | WATCHED_CHANGE / ONLINE_RANK_COUNT / LIKE_INFO_V3_UPDATE | 房间指标，进 metrics 表，值变化才写 |
+
+## 金额口径（参考 hefafafa/realtime_liushui 的实测）
+
+- 1000 金瓜子 = 1 元；免费礼物（银瓜子）不计。
+- 大航海回声：GUARD_BUY 之后 15 秒内同一人再来一条名字像「舰长 / 提督 / 总督」的礼物，是同一笔钱的回声，不重复计；回声价低于标价（打折舰长 168 / 138）时按回声价修正上舰金额。
+- 人气红包（POPULARITY_RED_POCKET*）不计流水，中奖内容物被用掉时才作为礼物计。
+- 顶栏「抽成后」开关：按设置里的计提比例（默认 50%）换算成实收，对账页不受影响。
+- 官方流水接口 `giftStream/getReceivedGiftStreamNextList`（来自 boxie123/Bilibili_GetReceivedGiftStream）是主播后台的账，用来校对弹幕采集的漏记。
 
 ## 已知限制 / 待办
 

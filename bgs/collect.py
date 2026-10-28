@@ -4,6 +4,7 @@ import logging
 
 from .api import BiliApi, UA
 from .config import Config, cookie_dict
+import re
 import time
 
 from .parse import normalize, metric, online_rank
@@ -11,6 +12,7 @@ from .store import Store
 from . import ws
 
 log = logging.getLogger("bgs")
+GUARD_WORD = re.compile(r"舰长|提督|总督|大航海")
 
 
 async def snapshot_guards(api: BiliApi, store: Store, room_id: int, ruid: int) -> None:
@@ -39,6 +41,10 @@ async def run(cfg: Config, status: dict | None = None) -> None:
         backoff = 1
         last_metric: dict[str, int] = {}
         last_rank_seen: dict[int, float] = {}
+        # 大航海回声：GUARD_BUY 之后 15 秒内，同一人再来一条名字像「舰长/提督/总督」的礼物，
+        # 是同一笔钱的回声，不重复计；回声价低于标价（打折舰长 168/138）时，按回声价修正上舰金额。
+        # 口径来自 hefafafa/realtime_liushui 的实测。
+        guard_echo: dict[int, dict] = {}   # uid -> {"ts", "coin", "event_id", "left"}
         try:
             while True:
                 try:
@@ -66,9 +72,27 @@ async def run(cfg: Config, status: dict | None = None) -> None:
                         if r is None:
                             continue
                         status["events"] = status.get("events", 0) + 1
-                        store.add_event(session_id, r["cmd"], r["uid"], r["uname"], coin=r["coin"],
-                                        guard_level=r["guard_level"], medal_level=r["medal_level"],
-                                        text=r["text"], raw=msg)
+                        now = time.time()
+                        if r["cmd"] == "GUARD_BUY" and r["uid"]:
+                            guard_echo[r["uid"]] = {"ts": now, "coin": r["coin"], "left": 4, "row": None}
+                        elif r["cmd"] == "SEND_GIFT" and r["uid"] in guard_echo:
+                            e = guard_echo[r["uid"]]
+                            if now - e["ts"] <= 15 and e["left"] > 0 and GUARD_WORD.search(r["text"] or ""):
+                                e["left"] -= 1
+                                if 100_000 <= r["coin"] < e["coin"] and e["row"]:
+                                    store.conn.execute("UPDATE events SET coin=? WHERE id=?", (r["coin"], e["row"]))
+                                    store.conn.commit()
+                                    log.info("打折舰长：%s 上舰金额 %.0f -> %.0f 元", r["uname"], e["coin"] / 1000, r["coin"] / 1000)
+                                    e["coin"] = r["coin"]
+                                r["coin"] = 0
+                                r["text"] = "（上舰回声）" + r["text"]
+                            elif now - e["ts"] > 15:
+                                del guard_echo[r["uid"]]
+                        row_id = store.add_event(session_id, r["cmd"], r["uid"], r["uname"], coin=r["coin"],
+                                                 guard_level=r["guard_level"], medal_level=r["medal_level"],
+                                                 text=r["text"], raw=msg)
+                        if r["cmd"] == "GUARD_BUY" and r["uid"] in guard_echo:
+                            guard_echo[r["uid"]]["row"] = row_id
                         if r["cmd"] in ("GUARD_BUY", "SUPER_CHAT_MESSAGE") or r["coin"] >= 10000:
                             log.info("%s %s(%s) %s %.1f元", r["cmd"], r["uname"], r["uid"], r["text"],
                                      r["coin"] / 1000)

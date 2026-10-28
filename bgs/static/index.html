@@ -36,15 +36,18 @@
 <header>
   <h1>直播后台</h1>
   <nav id="nav"></nav>
-  <span id="dot" class="muted" style="margin-left:auto;font-size:12px"></span>
+  <label class="muted" style="margin-left:auto;font-size:12px;cursor:pointer"><input type="checkbox" id="net" onchange="NET=this.checked;localStorage.setItem('net',NET?'1':'0');render()"> 抽成后</label>
+  <span id="dot" class="muted" style="font-size:12px"></span>
   <select id="session" style="margin-left:8px"></select>
 </header>
 <main id="main"></main>
 <dialog id="dlg"></dialog>
 <script>
-const TABS = [["settings","设置"],["sessions","场次"],["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单"],["monthly","记账"],["schedule","排播"]];
+const TABS = [["settings","设置"],["sessions","场次"],["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单"],["monthly","记账"],["reconcile","对账"],["schedule","排播"]];
 const $ = s => document.querySelector(s);
-const yuan = c => (c/1000).toFixed(c%1000?1:0) + " 元";
+let RATE = 0.5, NET = localStorage.getItem("net") === "1";
+const yuan = c => { const v = NET ? c*(1-RATE) : c; return (v/1000).toFixed(v%1000?1:0) + " 元"; };
+const yuanRaw = c => (c/1000).toFixed(c%1000?1:0) + " 元";
 const dt = t => new Date(t*1000).toLocaleString("zh-CN",{hour12:false});
 const dts = t => new Date(t*1000).toLocaleDateString("zh-CN");
 const tag = g => g ? `<span class="tag g${g}">${{1:"总督",2:"提督",3:"舰长"}[g]}</span>` : "";
@@ -66,6 +69,7 @@ async function pollStatus(){
   try {
     const st = await api("/api/status");
     const c = st.collect || {};
+    RATE = st.commission_rate ?? 0.5; $("#net").checked = NET;
     $("#dot").textContent = st.collecting ? (c.connected ? `● 采集中 · ${c.events||0} 条` : `◐ 连接中 ${c.error?("· "+c.error.slice(0,40)):""}`) : "○ 未采集";
     $("#dot").style.color = st.collecting && c.connected ? "#16a34a" : "";
   } catch(e) {}
@@ -84,6 +88,8 @@ async function settings(){
     ${st.collecting ? `<button class="btn ghost" onclick="api('/api/collect/stop',{method:'POST'}).then(render)">停止采集</button>` : `<button class="btn" onclick="api('/api/collect/start',{method:'POST'}).then(r=>{ if(r.error) alert(r.error); render(); })">开始采集</button>`}
   </div>
   <p class="muted">开播前点「开始采集」，它会先拉一次舰长名单，然后持续记弹幕 / 礼物 / 上舰 / SC / 进场，断线自动重连。关掉这个程序就停止。</p>
+  <h2>抽成口径</h2>
+  <div class="row"><input id="rate" type="number" min="0" max="100" step="1" value="${Math.round((st.commission_rate??0.5)*100)}" style="width:90px"> <span class="muted" style="align-self:center">% 平台计提（官方口径 PC / 安卓端 50%，税前）。勾上顶栏「抽成后」时，所有金额按 1 − 比例 换算。</span><button class="btn ghost" onclick="saveRate()">保存</button></div>
   <h2>B站登录</h2>
   <div class="row"><button class="btn" onclick="startLogin()">${st.logged_in ? "重新扫码" : "扫码登录"}</button>${st.logged_in ? `<button class="btn ghost" onclick="api('/api/logout',{method:'POST'}).then(render)">退出登录</button>` : ""}</div>
   <div id="qrbox"></div>
@@ -91,6 +97,27 @@ async function settings(){
 }
 async function saveRoom(){
   await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({room_id:$("#room").value})});
+  render();
+}
+async function saveRate(){
+  await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({commission_rate:(+$("#rate").value)/100})});
+  render();
+}
+async function reconcile(){
+  const days = await api("/api/official/days");
+  const day = localStorage.getItem("recDay") || new Date().toISOString().slice(0,10);
+  const r = await api("/api/reconcile?day="+day);
+  const sign = v => v>0 ? "+"+yuanRaw(v) : v<0 ? "−"+yuanRaw(-v) : "一致";
+  return `<p class="muted">官方流水来自主播后台（需主播本人登录），本地流水来自弹幕采集。差值 = 本地 − 官方；正数多记，负数漏记。金额均为面值，不受「抽成后」开关影响。</p>
+  <div class="row"><input type="date" id="recDay" value="${day}" onchange="localStorage.setItem('recDay',this.value);render()"><button class="btn" onclick="fetchOfficial()">拉取这天的官方流水</button><span id="recMsg" class="muted" style="align-self:center"></span></div>
+  <div class="cards">${[["官方合计", r.official_fetched ? yuanRaw(r.official_total) : "未拉取"],["本地合计", yuanRaw(r.local_total)],["差值", r.official_fetched ? sign(r.local_total - r.official_total) : "-"]].map(([k,v])=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("")}</div>
+  ${table(["用户","#官方","#本地","#差值","#官方笔数","#本地笔数"], r.rows.map(x=>`<tr style="${x.diff?'color:var(--accent)':''}">${td(user(x.uid,x.uname))}${td(yuanRaw(x.official),1)}${td(yuanRaw(x.local),1)}${td(sign(x.diff),1)}${td(x.official_n,1)}${td(x.local_n,1)}</tr>`), "这天两边都没有付费记录")}
+  ${days.length ? `<h2>已拉取的官方流水</h2>${table(["日期","#笔数","#合计"], days.map(d=>`<tr>${td(`<span class="link" onclick="localStorage.setItem('recDay','${d.day}');render()">${d.day}</span>`)}${td(d.n,1)}${td(yuanRaw(d.coin||0),1)}</tr>`))}` : ""}`;
+}
+async function fetchOfficial(){
+  const day = $("#recDay").value; $("#recMsg").textContent = "拉取中…";
+  const r = await api("/api/reconcile/fetch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({day})});
+  if(r.error){ $("#recMsg").textContent = r.error; return; }
   render();
 }
 let loginTimer = null;
@@ -113,7 +140,7 @@ async function render(){
   const seq = ++renderSeq;
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.k===tab));
   $("#main").innerHTML = `<div class="empty">加载中…</div>`;
-  const html = await ({settings,sessions,guards,flow,gifts,attendance,thanks,monthly,schedule})[tab]();
+  const html = await ({settings,sessions,guards,flow,gifts,attendance,thanks,monthly,reconcile,schedule})[tab]();
   if (seq === renderSeq) $("#main").innerHTML = html;
 }
 const table = (heads, rows, empty="暂无数据") => rows.length ? `<div class="wrap"><table><tr>${heads.map(h=>`<th class="${h.startsWith("#")?"num":""}">${h.replace(/^#/,"")}</th>`).join("")}</tr>${rows.join("")}</table></div>` : `<div class="empty">${empty}</div>`;

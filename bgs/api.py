@@ -72,3 +72,23 @@ class BiliApi:
                 break
             page += 1
         return rows
+
+    async def received_gift_stream(self, day: str) -> list[dict]:
+        """主播后台的礼物流水（官方账），按天拉全。需要主播本人的登录 cookie。
+        day: YYYY-MM-DD。返回项：id, uid, uname, gift_id, gift_name, gift_num, normal_gold(金瓜子), time, ...
+        来源：boxie123/Bilibili_GetReceivedGiftStream 用的同一个接口。"""
+        url = "https://api.live.bilibili.com/xlive/revenue/v1/giftStream/getReceivedGiftStreamNextList"
+        headers = {"Referer": "https://link.bilibili.com/p/center/index"}
+        out: list[dict] = []
+        params = {"limit": 200, "coin_type": 0, "gift_id": "", "begin_time": day, "uname": ""}
+        while True:
+            async with self.session.get(url, params=params, headers=headers) as r:
+                d = await r.json()
+            if d.get("code") != 0:
+                raise RuntimeError(f"礼物流水接口 code={d.get('code')} {d.get('message')}（需要主播本人登录）")
+            data = d.get("data") or {}
+            items = data.get("list") or []
+            out.extend(items)
+            if not data.get("has_more") or not items:
+                return out
+            params["last_id"] = items[-1]["id"]

@@ -155,3 +155,33 @@ def schedule_toggle(conn, sid: int) -> None:
 
 def schedule_delete(conn, sid: int) -> None:
     conn.execute("DELETE FROM schedule WHERE id=?", (sid,)); conn.commit()
+
+
+def reconcile(conn, day: str) -> dict:
+    """对账：某一天 官方流水 vs 本地采集，按人比较金额。本地按当天 00:00–24:00 本地时间取。"""
+    import datetime as _dt
+    d0 = _dt.datetime.strptime(day, "%Y-%m-%d")
+    t0, t1 = d0.timestamp(), (d0 + _dt.timedelta(days=1)).timestamp()
+    local = {r["uid"]: dict(r) for r in conn.execute(
+        "SELECT uid, MAX(uname) uname, SUM(coin) coin, COUNT(*) n FROM events"
+        " WHERE ts>=? AND ts<? AND coin>0 AND uid>0 GROUP BY uid", (t0, t1))}
+    official = {r["uid"]: dict(r) for r in conn.execute(
+        "SELECT uid, MAX(uname) uname, SUM(coin) coin, COUNT(*) n FROM official_gifts"
+        " WHERE day=? GROUP BY uid", (day,))}
+    rows = []
+    for uid in set(local) | set(official):
+        l, o = local.get(uid, {}), official.get(uid, {})
+        rows.append({"uid": uid, "uname": o.get("uname") or l.get("uname"),
+                     "official": o.get("coin", 0) or 0, "local": l.get("coin", 0) or 0,
+                     "official_n": o.get("n", 0), "local_n": l.get("n", 0)})
+    for r in rows:
+        r["diff"] = r["local"] - r["official"]
+    rows.sort(key=lambda r: (-abs(r["diff"]), -r["official"]))
+    return {"day": day, "rows": rows,
+            "official_total": sum(r["official"] for r in rows), "local_total": sum(r["local"] for r in rows),
+            "official_fetched": bool(official)}
+
+
+def official_days(conn) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        "SELECT day, COUNT(*) n, SUM(coin) coin, MAX(ts) fetched FROM official_gifts GROUP BY day ORDER BY day DESC")]

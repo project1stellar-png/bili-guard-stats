@@ -2,3 +2,4 @@ room_id = 1
 cookie = ""
 db_path = "data/demo.db"
 presence_gap_seconds = 1800
+commission_rate = 0.5

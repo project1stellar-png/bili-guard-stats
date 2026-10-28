@@ -5,8 +5,33 @@ import base64
 
 from . import pb
 
-KEEP = {"DANMU_MSG", "SEND_GIFT", "GUARD_BUY", "USER_TOAST_MSG", "SUPER_CHAT_MESSAGE",
+KEEP = {"DANMU_MSG", "SEND_GIFT", "SEND_GIFT_V2", "GUARD_BUY", "USER_TOAST_MSG", "SUPER_CHAT_MESSAGE",
         "INTERACT_WORD", "INTERACT_WORD_V2", "ENTRY_EFFECT", "LIKE_INFO_V3_CLICK"}
+
+
+def _find_gift_item(d: dict, depth: int = 0) -> dict | None:
+    """SEND_GIFT_V2 的礼物子消息：有 1 gift_id(int) / 2 name(str) / 3 num / 5 price / 7 total_coin / 14 combo_total_coin。
+    不信任固定路径，递归找第一个长得像的子消息。字段号来自 hefafafa/realtime_liushui 的实测。"""
+    if depth > 4:
+        return None
+    if isinstance(d.get(2, [None])[0], bytes) and d.get(1) and not isinstance(d[1][0], bytes) and d.get(5) \
+            and not isinstance(d[5][0], bytes):
+        try:
+            d[2][0].decode("utf-8")
+            return d
+        except UnicodeDecodeError:
+            pass
+    for vals in d.values():
+        for v in vals:
+            if isinstance(v, bytes) and len(v) > 4:
+                try:
+                    sub = pb.decode(v)
+                except Exception:  # noqa: BLE001
+                    continue
+                hit = _find_gift_item(sub, depth + 1)
+                if hit:
+                    return hit
+    return None
 
 # 房间级指标（不是某个人的行为）：cmd -> (指标名, 取值函数)
 METRICS = {
@@ -62,6 +87,24 @@ def normalize(msg: dict) -> dict | None:
             r["guard_level"] = int(info[7]) if len(info) > 7 else 0
         except (IndexError, TypeError, ValueError):
             return None
+    elif base == "SEND_GIFT_V2":
+        # protobuf：顶层 1 uid / 2 uname（实测核对），礼物内容在嵌套子消息里
+        try:
+            m = pb.decode(base64.b64decode(d["pb"]))
+        except Exception:  # noqa: BLE001
+            return None
+        item = _find_gift_item(m)
+        if not item:
+            return None
+        r["cmd"] = "SEND_GIFT"
+        r["uid"], r["uname"] = pb.i(m, 1), pb.s(m, 2)
+        num = pb.i(item, 3) or 1
+        name = pb.s(item, 2)
+        r["text"] = f"{name} x{num}"
+        # 金额：本条实付 total_coin(7) 优先，没有就 price(5)×num；免费礼物 coin_type 不在结构里，
+        # 用 price 是否为 0 判断（免费礼物 price=0）
+        coin = pb.i(item, 7) or pb.i(item, 5) * num
+        r["coin"] = int(coin) if pb.i(item, 5) > 0 else 0
     elif base == "SEND_GIFT":
         r["uid"], r["uname"] = int(d.get("uid", 0)), d.get("uname", "")
         r["text"] = f"{d.get('giftName')} x{d.get('num', 1)}"

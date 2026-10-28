@@ -20,6 +20,7 @@ class Config:
     cookie: str
     db_path: str
     presence_gap_seconds: int
+    commission_rate: float = 0.5  # 平台计提比例，官方口径 PC/安卓端 50%（税前）
     path: str = "config.toml"
 
     @staticmethod
@@ -33,6 +34,7 @@ class Config:
             cookie=d.get("cookie", ""),
             db_path=d.get("db_path", default_db),
             presence_gap_seconds=int(d.get("presence_gap_seconds", 1800)),
+            commission_rate=float(d.get("commission_rate", 0.5)),
             path=path,
         )
 
@@ -40,7 +42,7 @@ class Config:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         Path(self.path).write_text(
             f'room_id = {self.room_id}\ncookie = "{self.cookie}"\ndb_path = "{self.db_path}"\n'
-            f"presence_gap_seconds = {self.presence_gap_seconds}\n", encoding="utf-8")
+            f"presence_gap_seconds = {self.presence_gap_seconds}\ncommission_rate = {self.commission_rate}\n", encoding="utf-8")
 
 
 def cookie_dict(cookie: str) -> dict[str, str]:

@@ -96,6 +96,7 @@ def make_app(cfg: Config) -> web.Application:
         from .config import cookie_dict
         uid = cookie_dict(c.cookie).get("DedeUserID", "")
         return js({"room_id": c.room_id, "logged_in": bool(uid), "uid": uid, "collecting": collecting(),
+                   "commission_rate": c.commission_rate,
                    "collect": state["status"], "config_path": str(c.path), "db_path": c.db_path})
 
     async def settings_post(req):
@@ -105,6 +106,8 @@ def make_app(cfg: Config) -> web.Application:
             c.room_id = int(d["room_id"] or 0)
         if "presence_gap_seconds" in d:
             c.presence_gap_seconds = int(d["presence_gap_seconds"])
+        if "commission_rate" in d:
+            c.commission_rate = max(0.0, min(1.0, float(d["commission_rate"])))
         c.save()
         return js({"ok": True})
 
@@ -133,6 +136,29 @@ def make_app(cfg: Config) -> web.Application:
         elif code == 86038:
             await state["qr"].close(); state["qr"] = None
         return js({"code": code})
+
+    async def reconcile_get(req):
+        day = req.query.get("day") or __import__("datetime").date.today().isoformat()
+        return js(q.reconcile(conn(), day))
+
+    async def reconcile_fetch(req):
+        """从主播后台拉某天的官方流水入库。"""
+        from .api import BiliApi
+        d = await req.json()
+        day = d["day"]
+        c = state["cfg"]
+        if not c.cookie:
+            return js({"error": "先扫码登录（必须是主播本人的账号）"}, 400)
+        try:
+            async with BiliApi(c.cookie) as api:
+                items = await api.received_gift_stream(day)
+        except Exception as e:  # noqa: BLE001
+            return js({"error": str(e)}, 400)
+        n = Store(c.db_path).upsert_official_gifts(day, items)
+        return js({"ok": True, "n": n})
+
+    async def official_days(_):
+        return js(q.official_days(conn()))
 
     async def collect_start(_):
         if collecting():
@@ -176,6 +202,8 @@ def make_app(cfg: Config) -> web.Application:
         web.get("/api/user/{uid}", user), web.get("/api/monthly", monthly),
         web.get("/api/schedule", schedule_get), web.post("/api/schedule", schedule_post),
         web.post("/api/schedule/{id}/toggle", schedule_toggle), web.delete("/api/schedule/{id}", schedule_delete),
+        web.get("/api/reconcile", reconcile_get), web.post("/api/reconcile/fetch", reconcile_fetch),
+        web.get("/api/official/days", official_days),
         web.get("/api/status", status), web.post("/api/settings", settings_post), web.post("/api/logout", logout),
         web.post("/api/login/qr", login_qr), web.get("/api/login/poll", login_poll),
         web.post("/api/collect/start", collect_start), web.post("/api/collect/stop", collect_stop),
