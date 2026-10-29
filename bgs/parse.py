@@ -79,7 +79,8 @@ def normalize(msg: dict) -> dict | None:
     if base not in KEEP:
         return None
     d = msg.get("data") or {}
-    r = {"cmd": base, "uid": 0, "uname": "", "coin": 0, "guard_level": 0, "medal_level": 0, "text": ""}
+    r = {"cmd": base, "uid": 0, "uname": "", "coin": 0, "guard_level": 0, "medal_level": 0, "text": "",
+         "medal_target": 0, "medal_name": ""}
 
     if base == "DANMU_MSG":
         info = msg.get("info") or []
@@ -88,6 +89,9 @@ def normalize(msg: dict) -> dict | None:
             r["uid"], r["uname"] = int(info[2][0]), info[2][1]
             medal = info[3] or []
             r["medal_level"] = int(medal[0]) if medal else 0
+            if medal:
+                r["medal_name"] = str(medal[1])
+                r["medal_target"] = int(medal[12]) if len(medal) > 12 and str(medal[12]).isdigit() else 0
             r["guard_level"] = int(info[7]) if len(info) > 7 else 0
         except (IndexError, TypeError, ValueError):
             return None
@@ -105,7 +109,9 @@ def normalize(msg: dict) -> dict | None:
         r["cmd"] = "SEND_GIFT"
         r["uid"], r["uname"] = pb.i(m, 1), pb.s(m, 2)
         r["guard_level"] = pb.i(m, 5)
-        r["medal_level"] = pb.i(pb.m(m, 8), 5)
+        fm = pb.m(m, 8)
+        r["medal_level"], r["medal_name"] = pb.i(fm, 5), pb.s(fm, 6)
+        r["medal_target"] = pb.i(fm, 1)
         num = pb.i(item, 3) or 1
         name = pb.s(item, 2)
         r["text"] = f"{name} x{num}"
@@ -118,7 +124,9 @@ def normalize(msg: dict) -> dict | None:
         if d.get("coin_type") == "gold":
             r["coin"] = int(d.get("total_coin") or d.get("price", 0) * d.get("num", 1))
         r["guard_level"] = int(d.get("guard_level", 0))
-        r["medal_level"] = int(((d.get("medal_info") or {}).get("medal_level")) or 0)
+        mi = d.get("medal_info") or {}
+        r["medal_level"] = int(mi.get("medal_level") or 0)
+        r["medal_target"], r["medal_name"] = int(mi.get("target_id") or 0), mi.get("medal_name", "")
     elif base == "GUARD_BUY":
         r["uid"], r["uname"] = int(d.get("uid", 0)), d.get("username", "")
         r["guard_level"] = int(d.get("guard_level", 0))
@@ -157,12 +165,14 @@ def normalize(msg: dict) -> dict | None:
         r["uid"], r["uname"] = pb.i(m, 1), pb.s(m, 2)
         fm = pb.m(m, 9)
         r["medal_level"], r["guard_level"] = pb.i(fm, 2), pb.i(fm, 9)
+        r["medal_target"], r["medal_name"] = pb.i(fm, 1), pb.s(fm, 3)
         r["text"] = {1: "进场", 2: "关注", 3: "分享"}.get(pb.i(m, 5), "进场")
         r["cmd"] = "INTERACT_WORD"
     elif base in ("INTERACT_WORD", "ENTRY_EFFECT", "LIKE_INFO_V3_CLICK"):
         r["uid"], r["uname"] = int(d.get("uid", 0)), d.get("uname", "")
         fm = d.get("fans_medal") or {}
         r["medal_level"] = int(fm.get("medal_level") or 0)
+        r["medal_target"], r["medal_name"] = int(fm.get("target_id") or 0), fm.get("medal_name", "")
         r["guard_level"] = int(fm.get("guard_level") or d.get("privilege_type") or 0)
         r["text"] = {1: "进场", 2: "关注", 3: "分享"}.get(d.get("msg_type"), base)
     return r

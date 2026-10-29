@@ -104,6 +104,10 @@ class Store:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path)
         self.conn.executescript(SCHEMA)
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(events)")}
+        for col, typ in (("medal_target", "INTEGER DEFAULT 0"), ("medal_name", "TEXT DEFAULT ''")):
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE events ADD COLUMN {col} {typ}")
         self.conn.commit()
 
     def start_session(self, room_id: int) -> int:
@@ -118,12 +122,12 @@ class Store:
         self.conn.commit()
 
     def add_event(self, session_id: int, cmd: str, uid: int, uname: str, *, coin=0,
-                  guard_level=0, medal_level=0, text="", raw=None, ts=None) -> int:
+                  guard_level=0, medal_level=0, text="", raw=None, ts=None, medal_target=0, medal_name="") -> int:
         cur = self.conn.execute(
-            "INSERT INTO events(session_id, ts, cmd, uid, uname, coin, guard_level, medal_level, text, raw)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO events(session_id, ts, cmd, uid, uname, coin, guard_level, medal_level, text, raw, medal_target, medal_name)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (session_id, ts or time.time(), cmd, uid, uname, coin, guard_level, medal_level, text,
-             json.dumps(raw, ensure_ascii=False) if raw is not None else None),
+             json.dumps(raw, ensure_ascii=False) if raw is not None else None, medal_target, medal_name),
         )
         self.conn.commit()
         return cur.lastrowid

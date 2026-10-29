@@ -104,7 +104,8 @@ async def run(cfg: Config, status: dict | None = None) -> None:
                                 del guard_echo[r["uid"]]
                         row_id = store.add_event(session_id, r["cmd"], r["uid"], r["uname"], coin=r["coin"],
                                                  guard_level=r["guard_level"], medal_level=r["medal_level"],
-                                                 text=r["text"], raw=msg)
+                                                 text=r["text"], raw=msg,
+                                                 medal_target=r.get("medal_target", 0), medal_name=r.get("medal_name", ""))
                         if r["cmd"] == "GUARD_BUY" and r["uid"] in guard_echo:
                             guard_echo[r["uid"]]["row"] = row_id
                         if r["cmd"] in ("GUARD_BUY", "SUPER_CHAT_MESSAGE") or r["coin"] >= 10000:

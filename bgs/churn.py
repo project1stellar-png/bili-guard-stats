@@ -57,9 +57,17 @@ def analysis(conn: sqlite3.Connection, own_target: int) -> dict:
         for r in conn.execute("SELECT * FROM medal_snapshots WHERE taken_at=?", (prev,)):
             prev_by[(r["uid"], r["target_id"])] = dict(r)
     flow = Counter(); flow_names = {}
+    last_worn: dict[int, dict] = {}
+    if base["churned"]:
+        ids = ",".join(str(u["uid"]) for u in base["churned"])
+        for r in conn.execute(f"SELECT uid, medal_target, medal_name, medal_level, MAX(ts) FROM events"
+                              f" WHERE uid IN ({ids}) AND medal_target>0 GROUP BY uid"):
+            last_worn[r[0]] = {"target_id": r[1], "medal_name": r[2], "level": r[3]}
     for u in base["churned"]:
         medals = by_uid.get(u["uid"], [])
         u["snapshot"] = bool(medals)
+        lw = last_worn.get(u["uid"])
+        u["last_worn"] = lw if lw and lw["target_id"] != own_target else None
         own = next((m for m in medals if m["target_id"] == own_target), None)
         u["own_level"] = own["level"] if own else None
         h = home_of(medals, own_target)
@@ -69,6 +77,13 @@ def analysis(conn: sqlite3.Connection, own_target: int) -> dict:
                          "level": h["level"], "guard_level": h["guard_level"], "wearing": h["wearing"],
                          "level_gain": (h["level"] - pv["level"]) if pv else None}
             flow[h["target_id"]] += 1; flow_names[h["target_id"]] = h["target_name"]
+        elif u["last_worn"]:
+            # 勋章墙关了或没拉到：用他最近一次在本直播间出现时戴的别家牌子兜底
+            lw = u["last_worn"]
+            u["home"] = {"target_id": lw["target_id"], "target_name": lw["medal_name"] + "（进场佩戴）",
+                         "medal_name": lw["medal_name"], "level": lw["level"], "guard_level": 0, "wearing": 1,
+                         "level_gain": None, "from_entry": True}
+            flow[lw["target_id"]] += 1; flow_names[lw["target_id"]] = lw["medal_name"] + "（牌子名）"
         else:
             u["home"] = None
         # 在别处涨得最快的牌子
