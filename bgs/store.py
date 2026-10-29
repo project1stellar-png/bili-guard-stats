@@ -73,6 +73,21 @@ CREATE TABLE IF NOT EXISTS programs (
     sort INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS medal_snapshots (
+    id INTEGER PRIMARY KEY,
+    taken_at REAL NOT NULL,     -- 一轮快照用同一个时间戳
+    uid INTEGER NOT NULL,
+    target_id INTEGER NOT NULL, -- 牌子对应的主播 uid
+    target_name TEXT,
+    medal_name TEXT,
+    level INTEGER,
+    intimacy INTEGER,
+    guard_level INTEGER DEFAULT 0,
+    wearing INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_medal_uid ON medal_snapshots(uid, taken_at);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+
 CREATE TABLE IF NOT EXISTS schedule (
     id INTEGER PRIMARY KEY,
     date TEXT NOT NULL,         -- YYYY-MM-DD
@@ -131,6 +146,21 @@ class Store:
         self.conn.executemany("INSERT OR REPLACE INTO official_gifts VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
         self.conn.commit()
         return len(rows)
+
+    def add_medal_snapshot(self, taken_at: float, uid: int, medals: list[dict]) -> None:
+        self.conn.executemany(
+            "INSERT INTO medal_snapshots(taken_at, uid, target_id, target_name, medal_name, level, intimacy, guard_level, wearing)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            [(taken_at, uid, m["target_id"], m["target_name"], m["medal_name"], m["level"], m["intimacy"],
+              m["guard_level"], m["wearing"]) for m in medals])
+        self.conn.commit()
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?,?)", (key, value)); self.conn.commit()
+
+    def get_meta(self, key: str, default: str = "") -> str:
+        r = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return r[0] if r else default
 
     def add_metric(self, session_id: int, key: str, value: int) -> None:
         self.conn.execute("INSERT INTO metrics(session_id, ts, key, value) VALUES (?,?,?,?)",

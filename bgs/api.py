@@ -92,3 +92,18 @@ class BiliApi:
             if not data.get("has_more") or not items:
                 return out
             params["last_id"] = items[-1]["id"]
+
+    async def medal_wall(self, uid: int) -> list[dict]:
+        """某用户的粉丝勋章墙（公开数据，需登录态）。过滤掉 B站自动生成的「周报」牌子。"""
+        d = await self._get("https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall", target_id=uid)
+        out = []
+        for it in d.get("list") or []:
+            mi = it.get("medal_info") or {}
+            name = it.get("target_name") or ""
+            if name.endswith("周报"):
+                continue
+            out.append({"target_id": int(mi.get("target_id") or 0), "target_name": name,
+                        "medal_name": mi.get("medal_name", ""), "level": int(mi.get("level") or 0),
+                        "intimacy": int(mi.get("intimacy") or 0), "guard_level": int(mi.get("guard_level") or 0),
+                        "wearing": int(mi.get("wearing_status") or 0)})
+        return out

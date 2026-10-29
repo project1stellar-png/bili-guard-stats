@@ -62,7 +62,7 @@
 </div>
 <dialog id="dlg"></dialog>
 <script>
-const TABS = [["software","直播软件","开播"],["sessions","场次","直播数据"],["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["thanks","感谢单","直播间管理"],["monthly","记账","个人安排"],["reconcile","对账"],["schedule","排播"],["settings","设置","系统"]];
+const TABS = [["software","直播软件","开播"],["sessions","场次","直播数据"],["guards","舰长"],["flow","流水"],["gifts","礼物榜"],["attendance","打卡"],["churn","流失分析"],["thanks","感谢单","直播间管理"],["monthly","记账","个人安排"],["reconcile","对账"],["schedule","排播"],["settings","设置","系统"]];
 const THEMES = {pink:"#ec5f8e", blue:"#3b82f6", green:"#22a06b", slate:"#475569"};
 const $ = s => document.querySelector(s);
 let RATE = 0.5, NET = localStorage.getItem("net") === "1";
@@ -177,6 +177,23 @@ async function addProgram(){
   await api("/api/programs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("#pName").value, path, grp:$("#pGrp").value, args:$("#pArgs").value})});
   $("#dlg").close(); render();
 }
+async function churn(){
+  const d = await api("/api/churn");
+  const sn = d.snap || {};
+  const snapBtn = sn.running ? `<span class="muted">拉取中 ${sn.done}/${sn.total}${sn.errors?`，失败 ${sn.errors}`:""}</span>`
+    : `<button class="btn" onclick="api('/api/churn/snapshot',{method:'POST'}).then(r=>{ if(r.error) alert(r.error); setTimeout(render,1500); })">${d.last_snapshot?"重新拉取勋章墙":"拉取勋章墙"}</button>`;
+  if(sn.running) setTimeout(()=>{ if(tab==="churn") render(); }, 4000);
+  const head = `<p class="muted">常客 = 之前 ${d.prior.length} 场里出勤 ≥ 2 场的人；流失 = 常客里最近 ${d.recent.length} 场一次都没出现的人。「主场」取他当前佩戴的粉丝牌，没戴就取等级最高的别家牌子，数据来自 B站公开的勋章墙，每周自动拍一次快照。</p>
+    <div class="row" style="align-items:center">${snapBtn}<span class="muted" style="font-size:12px">${d.last_snapshot?"上次快照 "+dt(d.last_snapshot)+"，覆盖 "+d.snapshot_users+" 人":"还没有快照"}${sn.error?` · 最近错误：${esc(sn.error)}`:""}</span></div>`;
+  if(!d.enough) return head + `<div class="empty">至少要 ${4} 场直播的数据才能算流失，现在 ${d.recent.length+d.prior.length} 场</div>`;
+  const g = x => x ? `<span class="tag g${x}">${{1:"总督",2:"提督",3:"舰长"}[x]}</span>` : "";
+  const homeCell = u => !u.snapshot ? '<span class="muted">未拉取</span>' : !u.home ? '<span class="muted">没有别家牌子</span>'
+    : `${esc(u.home.target_name)} <span class="muted">${esc(u.home.medal_name)} Lv${u.home.level}${u.home.wearing?" · 佩戴中":""}${u.home.guard_level?" · "+{1:"总督",2:"提督",3:"舰长"}[u.home.guard_level]:""}${u.home.level_gain>0?` · 本周 +${u.home.level_gain}`:""}</span>`;
+  return head + `<div class="cards">${[["常客",d.regulars],["流失",d.churned.length],["流失率",d.regulars?Math.round(d.churned.length/d.regulars*100)+"%":"-"]].map(([k,v])=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("")}</div>
+  ${d.flow.length?`<h2>流向排行</h2>${table(["主播","#人数"], d.flow.map(f=>`<tr>${td(esc(f.target_name))}${td(f.n,1)}</tr>`))}`:""}
+  <h2>流失名单</h2>
+  ${table(["用户","#之前出勤","#弹幕","#消费","#你家牌子","现在的主场","上升最快"], d.churned.map(u=>`<tr>${td(g(u.guard_level)+" "+user(u.uid,u.uname))}${td(u.prior_attend+"/"+d.prior.length,1)}${td(u.danmu,1)}${td(yuan(u.coin),1)}${td(u.own_level!=null?"Lv"+u.own_level:"-",1)}${td(homeCell(u))}${td(u.rising?esc(u.rising):"")}</tr>`), "最近几场常客都在，没有流失")}`;
+}
 async function saveRec(){
   await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({record_dir:$("#recDir").value, audio_device:$("#audioDev").value, ffmpeg_path:$("#ffPath").value, hotkey:$("#hotkey").value})});
   render();
@@ -231,7 +248,7 @@ async function render(){
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.k===tab));
   $("#title").textContent = (TABS.find(t=>t[0]===tab)||[])[1] || "";
   $("#main").innerHTML = `<div class="empty">加载中…</div>`;
-  const html = await ({software,settings,sessions,guards,flow,gifts,attendance,thanks,monthly,reconcile,schedule})[tab]();
+  const html = await ({software,settings,sessions,guards,flow,gifts,attendance,churn,thanks,monthly,reconcile,schedule})[tab]();
   if (seq === renderSeq) $("#main").innerHTML = html;
 }
 const table = (heads, rows, empty="暂无数据") => rows.length ? `<div class="wrap"><table><tr>${heads.map(h=>`<th class="${h.startsWith("#")?"num":""}">${h.replace(/^#/,"")}</th>`).join("")}</tr>${rows.join("")}</table></div>` : `<div class="empty">${empty}</div>`;

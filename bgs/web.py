@@ -10,7 +10,7 @@ from pathlib import Path
 import qrcode
 from aiohttp import web
 
-from . import launcher, queries as q, recorder as rec
+from . import churn, launcher, queries as q, recorder as rec
 from .collect import run as collect_run
 from .config import Config
 from .login import QrLogin
@@ -23,7 +23,8 @@ log = logging.getLogger("bgs.web")
 def make_app(cfg: Config) -> web.Application:
     app = web.Application()
     Store(cfg.db_path)  # 建表
-    state = {"cfg": cfg, "task": None, "status": {}, "qr": None, "recorder": rec.Recorder()}
+    state = {"cfg": cfg, "task": None, "status": {}, "qr": None, "recorder": rec.Recorder(),
+             "snap_task": None, "snap": {"running": False, "total": 0, "done": 0, "errors": 0, "error": ""}}
 
     def conn():
         return q.connect(state["cfg"].db_path)
@@ -235,6 +236,56 @@ def make_app(cfg: Config) -> web.Application:
     async def record_folder(_):
         launcher.open_folder(state["cfg"].record_dir_path() + "/"); return js({"ok": True})
 
+    # ---------- 流失分析 ----------
+    def own_target() -> int:
+        return int(Store(state["cfg"].db_path).get_meta("own_target", "0") or 0)
+
+    async def churn_get(_):
+        c = conn()
+        d = churn.analysis(c, own_target())
+        d["snap"] = state["snap"]
+        d["last_snapshot"] = float(Store(state["cfg"].db_path).get_meta("last_medal_snapshot", "0") or 0)
+        d["logged_in"] = bool(state["cfg"].cookie)
+        return js(d)
+
+    def snapshot_running() -> bool:
+        t = state["snap_task"]
+        return t is not None and not t.done()
+
+    async def churn_snapshot(_):
+        if snapshot_running():
+            return js({"ok": True, "already": True})
+        if not state["cfg"].cookie:
+            return js({"error": "拉勋章墙需要登录"}, 400)
+
+        async def runner():
+            try:
+                await churn.run_snapshot(state["cfg"], state["snap"])
+            except Exception as e:  # noqa: BLE001
+                state["snap"].update(running=False, error=str(e)[:200])
+                log.exception("勋章墙快照失败")
+
+        state["snap_task"] = asyncio.create_task(runner())
+        return js({"ok": True})
+
+    async def weekly_snapshot_loop():
+        """每天检查一次：登录了、且上次快照超过 7 天，就自动拉一轮。"""
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                c = state["cfg"]
+                last = float(Store(c.db_path).get_meta("last_medal_snapshot", "0") or 0)
+                if c.cookie and c.room_id and not snapshot_running() and __import__("time").time() - last > 7 * 86400:
+                    log.info("每周勋章墙快照开始")
+                    await churn_snapshot(None)
+            except Exception:  # noqa: BLE001
+                log.exception("weekly snapshot loop")
+
+    async def on_startup(_):
+        state["weekly"] = asyncio.create_task(weekly_snapshot_loop())
+
+    app.on_startup.append(on_startup)
+
     async def quit_app(_):
         async def _bye():
             await asyncio.sleep(0.3)
@@ -294,6 +345,7 @@ def make_app(cfg: Config) -> web.Application:
         web.get("/api/record", record_status), web.get("/api/record/devices", record_devices),
         web.post("/api/record/start", record_start), web.post("/api/record/stop", record_stop),
         web.post("/api/record/folder", record_folder),
+        web.get("/api/churn", churn_get), web.post("/api/churn/snapshot", churn_snapshot),
         web.post("/api/quit", quit_app),
         web.get("/api/status", status), web.post("/api/settings", settings_post), web.post("/api/logout", logout),
         web.post("/api/login/qr", login_qr), web.get("/api/login/poll", login_poll),
