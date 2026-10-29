@@ -4,3 +4,4 @@ qrcode>=7
 pillow>=10
 psutil>=5.9
 keyboard>=0.13; sys_platform == "win32"
+anthropic>=1.0

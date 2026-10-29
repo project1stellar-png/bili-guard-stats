@@ -26,6 +26,7 @@ class Config:
     ffmpeg_path: str = ""         # 留空自动找
     hotkey: str = "ctrl+alt+f9"   # 录屏开关全局快捷键（Windows）
     theme: str = "pink"
+    anthropic_api_key: str = ""   # 填了才会用 Claude 生成用户近况，不填用规则模板
     path: str = "config.toml"
 
     @staticmethod
@@ -42,6 +43,7 @@ class Config:
             commission_rate=float(d.get("commission_rate", 0.5)),
             record_dir=d.get("record_dir", ""), audio_device=d.get("audio_device", ""),
             ffmpeg_path=d.get("ffmpeg_path", ""), hotkey=d.get("hotkey", "ctrl+alt+f9"), theme=d.get("theme", "pink"),
+            anthropic_api_key=d.get("anthropic_api_key", ""),
             path=path,
         )
 
@@ -51,7 +53,7 @@ class Config:
             f'room_id = {self.room_id}\ncookie = "{self.cookie}"\ndb_path = "{self.db_path}"\n'
             f"presence_gap_seconds = {self.presence_gap_seconds}\ncommission_rate = {self.commission_rate}\n"
             f'record_dir = "{self.record_dir}"\naudio_device = "{self.audio_device}"\nffmpeg_path = "{self.ffmpeg_path}"\n'
-            f'hotkey = "{self.hotkey}"\ntheme = "{self.theme}"\n', encoding="utf-8")
+            f'hotkey = "{self.hotkey}"\ntheme = "{self.theme}"\nanthropic_api_key = "{self.anthropic_api_key}"\n', encoding="utf-8")
 
     def record_dir_path(self) -> str:
         return self.record_dir or str(Path(self.path).parent / "录屏")

@@ -107,3 +107,18 @@ class BiliApi:
                         "intimacy": int(mi.get("intimacy") or 0), "guard_level": int(mi.get("guard_level") or 0),
                         "wearing": int(mi.get("wearing_status") or 0)})
         return out
+
+    async def user_card(self, uid: int) -> dict:
+        """B站公开的用户名片：等级、签名、粉丝数、关注数、认证、大会员。"""
+        async with self.session.get("https://api.bilibili.com/x/web-interface/card", params={"mid": uid},
+                                    headers={"Referer": "https://www.bilibili.com/"}) as r:
+            d = await r.json()
+        if d.get("code") != 0:
+            raise RuntimeError(f"card code={d.get('code')} {d.get('message')}")
+        c = (d.get("data") or {}).get("card") or {}
+        ov = c.get("Official") or {}
+        return {"uid": uid, "name": c.get("name", ""), "sign": c.get("sign", ""), "sex": c.get("sex", ""),
+                "level": int((c.get("level_info") or {}).get("current_level") or 0),
+                "fans": int(c.get("fans") or 0), "attention": int(c.get("attention") or 0),
+                "official": ov.get("title") or "", "vip": int((c.get("vip") or {}).get("vipStatus") or 0),
+                "face": c.get("face", "")}

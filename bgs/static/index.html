@@ -118,6 +118,9 @@ async function settings(){
   <div class="row"><input id="recDir" placeholder="录屏保存目录（留空 = 程序旁 data/录屏）" value="${esc(st.record_dir||"")}" style="flex:1;min-width:240px"><input id="audioDev" placeholder="音频输入设备名" value="${esc(st.audio_device||"")}" style="min-width:200px"><button class="btn ghost" onclick="pickDevice()">列出设备</button></div>
   <div class="row"><input id="ffPath" placeholder="ffmpeg 路径（留空自动找）" value="${esc(st.ffmpeg_path||"")}" style="flex:1;min-width:240px"><input id="hotkey" placeholder="快捷键" value="${esc(st.hotkey||"ctrl+alt+f9")}" style="width:140px"><button class="btn ghost" onclick="saveRec()">保存</button></div>
   <p class="muted">快捷键只在 Windows 生效，改了要重启程序。</p>
+  <h2>AI 总结（可选）</h2>
+  <div class="row"><input id="aiKey" type="password" placeholder="Anthropic API Key，留空则用规则模板生成近况" value="${st.ai_configured?"（已填写，重新输入可替换）":""}" style="flex:1;min-width:280px" onfocus="if(this.value.startsWith('（'))this.value=''"><button class="btn ghost" onclick="saveAiKey()">保存</button></div>
+  <p class="muted">填了之后画像弹窗里多一个「用 AI 重写近况」按钮，发给模型的只有统计数据和公开资料，不含弹幕原文。按次计费，用你自己的 Key。</p>
   <h2>B站登录</h2>
   <div class="row"><button class="btn" onclick="startLogin()">${st.logged_in ? "重新扫码" : "扫码登录"}</button>${st.logged_in ? `<button class="btn ghost" onclick="api('/api/logout',{method:'POST'}).then(render)">退出登录</button>` : ""}</div>
   <div id="qrbox"></div>
@@ -193,6 +196,16 @@ async function churn(){
   ${d.flow.length?`<h2>流向排行</h2>${table(["主播","#人数"], d.flow.map(f=>`<tr>${td(esc(f.target_name))}${td(f.n,1)}</tr>`))}`:""}
   <h2>流失名单</h2>
   ${table(["用户","#之前出勤","#弹幕","#消费","#你家牌子","现在的主场","上升最快"], d.churned.map(u=>`<tr>${td(g(u.guard_level)+" "+user(u.uid,u.uname))}${td(u.prior_attend+"/"+d.prior.length,1)}${td(u.danmu,1)}${td(yuan(u.coin),1)}${td(u.own_level!=null?"Lv"+u.own_level:"-",1)}${td(homeCell(u))}${td(u.rising?esc(u.rising):"")}</tr>`), "最近几场常客都在，没有流失")}`;
+}
+async function aiSummary(uid){
+  const el = $("#aiText"); el.textContent = "生成中…";
+  const r = await api(`/api/user/${uid}/ai`,{method:"POST"});
+  el.textContent = r.error || r.text;
+}
+async function saveAiKey(){
+  const v = $("#aiKey").value; if(v.startsWith("（")) return;
+  await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({anthropic_api_key:v})});
+  render();
 }
 async function saveRec(){
   await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({record_dir:$("#recDir").value, audio_device:$("#audioDev").value, ffmpeg_path:$("#ffPath").value, hotkey:$("#hotkey").value})});
@@ -309,8 +322,14 @@ async function profile(uid){
   const dlg = $("#dlg");
   if(p.error){ dlg.innerHTML = `<p>uid ${uid} 在本工具运行期间没有互动记录。</p><button class="btn" onclick="dlg.close()">关闭</button>`; return dlg.showModal(); }
   const hrs = Array.from({length:24},(_,h)=>p.active_hours[h]||0), mx = Math.max(1,...hrs);
+  const c = p.card, m = p.medals || {};
+  const cardLine = c ? `<div class="muted" style="font-size:12px;margin-bottom:8px">B站 Lv${c.level} · 粉丝 ${c.fans} · 关注 ${c.attention}${c.vip?" · 大会员":""}${c.official?" · "+esc(c.official):""}${c.sign?"<br>签名："+esc(c.sign):""}</div>` : "";
+  const homeLine = m.home ? `主场：${esc(m.home.target_name)} ${esc(m.home.medal_name)} Lv${m.home.level}${m.home.wearing?"（佩戴中）":""}${m.home.guard_level?" · 那边"+{1:"总督",2:"提督",3:"舰长"}[m.home.guard_level]:""}` : (p.trajectory_brief?.last_worn ? `最近来时戴：${esc(p.trajectory_brief.last_worn.medal_name)}` : (m.snapshot ? "没有别家牌子" : "勋章墙未拉取或不公开"));
   dlg.innerHTML = `<h2 style="margin-top:0">${tag(p.guard_level)} ${esc(p.uname)} <span class="muted">uid ${p.uid}</span></h2>
-    <p>${esc(p.description)}</p>
+    ${cardLine}
+    <div class="card" style="margin-bottom:10px"><div class="k">用户近况</div><div id="aiText">${esc(p.recent_status||p.description)}</div>
+      <div class="muted" style="font-size:12px;margin-top:6px">${homeLine}${p.trajectory_brief?.top_words?.length?" · 常说："+p.trajectory_brief.top_words.map(esc).join(" / "):""}</div>
+      ${p.ai_available?`<div style="margin-top:8px"><button class="btn ghost" onclick="aiSummary(${p.uid})">用 AI 重写近况</button></div>`:""}</div>
     <div class="cards">${[["消费",yuan(p.coin)],["出勤",p.attend+"/"+p.total_sessions],["在场(h)",p.presence_h],["弹幕",p.danmu],["粉丝牌",p.medal_level||"-"]].map(([k,v])=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("")}</div>
     <div class="k muted">活跃时段（0–23 点）</div><div class="bars">${hrs.map((v,h)=>`<div title="${h}点 ${v}次" style="height:${v/mx*100}%"></div>`).join("")}</div>
     ${p.guard_since?`<p class="muted">首次出现在舰长名单：${dts(p.guard_since)}</p>`:""}

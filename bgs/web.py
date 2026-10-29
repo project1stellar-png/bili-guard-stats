@@ -10,7 +10,7 @@ from pathlib import Path
 import qrcode
 from aiohttp import web
 
-from . import churn, launcher, queries as q, recorder as rec
+from . import churn, launcher, profile as prof, queries as q, recorder as rec
 from .collect import run as collect_run
 from .config import Config
 from .login import QrLogin
@@ -68,8 +68,37 @@ def make_app(cfg: Config) -> web.Application:
         return js(q.attendance(conn(), gap()))
 
     async def user(req):
-        p = q.user_profile(conn(), int(req.match_info["uid"]), gap())
-        return js(p) if p else js({"error": "no data"}, 404)
+        uid = int(req.match_info["uid"])
+        c = conn()
+        p = q.user_profile(c, uid, gap())
+        if not p:
+            return js({"error": "no data"}, 404)
+        t = prof.trajectory(c, uid, gap())
+        m = prof.medals(c, uid, own_target())
+        card = await prof.card(c, uid, state["cfg"].cookie)
+        p.update(recent_status=prof.rule_summary(t, m, card), card=card, medals=m, trajectory_brief={
+            "attend_recent3": t["attend_recent3"], "attend_prior": t["attend_prior"], "prior_n": t["prior_n"],
+            "coin_recent3": t["coin_recent3"], "coin_prior": t["coin_prior"], "last_worn": t["last_worn"],
+            "top_words": t["top_words"], "peak_hour": t["peak_hour"]},
+            ai_available=bool(state["cfg"].anthropic_api_key))
+        return js(p)
+
+    async def user_ai(req):
+        uid = int(req.match_info["uid"])
+        key = state["cfg"].anthropic_api_key
+        if not key:
+            return js({"error": "设置里没填 Anthropic API Key"}, 400)
+        c = conn()
+        t = prof.trajectory(c, uid, gap())
+        if not t:
+            return js({"error": "no data"}, 404)
+        m = prof.medals(c, uid, own_target())
+        card = await prof.card(c, uid, state["cfg"].cookie)
+        try:
+            text = await prof.claude_summary(key, prof.build_context(t, m, card))
+        except Exception as e:  # noqa: BLE001
+            return js({"error": f"调用失败：{str(e)[:200]}"}, 400)
+        return js({"text": text or "模型没有给出总结"})
 
     async def monthly(_):
         return js(q.monthly(conn()))
@@ -99,6 +128,7 @@ def make_app(cfg: Config) -> web.Application:
         return js({"room_id": c.room_id, "logged_in": bool(uid), "uid": uid, "collecting": collecting(),
                    "commission_rate": c.commission_rate, "theme": c.theme, "hotkey": c.hotkey,
                    "record_dir": c.record_dir, "audio_device": c.audio_device, "ffmpeg_path": c.ffmpeg_path,
+                   "ai_configured": bool(c.anthropic_api_key),
                    "platform": __import__("sys").platform,
                    "collect": state["status"], "config_path": str(c.path), "db_path": c.db_path})
 
@@ -111,7 +141,7 @@ def make_app(cfg: Config) -> web.Application:
             c.presence_gap_seconds = int(d["presence_gap_seconds"])
         if "commission_rate" in d:
             c.commission_rate = max(0.0, min(1.0, float(d["commission_rate"])))
-        for k in ("record_dir", "audio_device", "ffmpeg_path", "hotkey", "theme"):
+        for k in ("record_dir", "audio_device", "ffmpeg_path", "hotkey", "theme", "anthropic_api_key"):
             if k in d:
                 setattr(c, k, str(d[k]).strip())
         c.save()
@@ -333,7 +363,7 @@ def make_app(cfg: Config) -> web.Application:
         web.get("/", index),
         web.get("/api/sessions", sessions), web.get("/api/guards", guards), web.get("/api/flow", flow),
         web.get("/api/gifts", gifts), web.get("/api/thanks", thanks), web.get("/api/attendance", attendance),
-        web.get("/api/user/{uid}", user), web.get("/api/monthly", monthly),
+        web.get("/api/user/{uid}", user), web.post("/api/user/{uid}/ai", user_ai), web.get("/api/monthly", monthly),
         web.get("/api/schedule", schedule_get), web.post("/api/schedule", schedule_post),
         web.post("/api/schedule/{id}/toggle", schedule_toggle), web.delete("/api/schedule/{id}", schedule_delete),
         web.get("/api/reconcile", reconcile_get), web.post("/api/reconcile/fetch", reconcile_fetch),

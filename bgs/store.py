@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS medal_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_medal_uid ON medal_snapshots(uid, taken_at);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS user_cards (uid INTEGER PRIMARY KEY, fetched_at REAL, json TEXT);
 
 CREATE TABLE IF NOT EXISTS schedule (
     id INTEGER PRIMARY KEY,
