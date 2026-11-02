@@ -93,7 +93,7 @@ async function pollStatus(){
     const c = st.collect || {};
     RATE = st.commission_rate ?? 0.5; $("#net").checked = NET;
     if(st.theme && document.documentElement.dataset.accent !== st.theme) applyTheme(st.theme);
-    $("#footInfo").innerHTML = `${st.collecting ? "● 采集中" : "○ 未采集"}<br>房间 ${st.room_id||"-"} · ${st.logged_in ? "已登录" : "未登录"}`;
+    $("#footInfo").innerHTML = `${st.collecting ? "● 采集中" : "○ 未采集"}<br>房间 ${st.room_id||"-"} · ${st.logged_in ? "已登录" : "未登录"}<br>v${st.version||"?"} · <a class="link" href="https://github.com/project1stellar-png/bili-guard-stats/issues" target="_blank">反馈问题</a>`;
     $("#dot").textContent = st.collecting ? (c.connected ? `● 采集中 · ${c.events||0} 条` : `◐ 连接中 ${c.error?("· "+c.error.slice(0,40)):""}`) : "○ 未采集";
     $("#dot").style.color = st.collecting && c.connected ? "#16a34a" : "";
   } catch(e) {}

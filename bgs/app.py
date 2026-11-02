@@ -10,7 +10,8 @@ def entry() -> None:
     for a in sys.argv[1:]:
         if a.startswith("--port="):
             port = int(a.split("=", 1)[1])
-    print(f"直播后台已启动：http://127.0.0.1:{port}  （关掉这个窗口即退出）")
+    from . import __version__
+    print(f"直播后台 v{__version__} 已启动：http://127.0.0.1:{port}  （关掉这个窗口即退出）")
     main(port=port, open_browser=True)
 
 

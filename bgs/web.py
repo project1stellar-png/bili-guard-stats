@@ -125,7 +125,9 @@ def make_app(cfg: Config) -> web.Application:
         c = state["cfg"]
         from .config import cookie_dict
         uid = cookie_dict(c.cookie).get("DedeUserID", "")
-        return js({"room_id": c.room_id, "logged_in": bool(uid), "uid": uid, "collecting": collecting(),
+        from . import __version__
+        return js({"version": __version__,
+                   "room_id": c.room_id, "logged_in": bool(uid), "uid": uid, "collecting": collecting(),
                    "commission_rate": c.commission_rate, "theme": c.theme, "hotkey": c.hotkey,
                    "record_dir": c.record_dir, "audio_device": c.audio_device, "ffmpeg_path": c.ffmpeg_path,
                    "ai_configured": bool(c.anthropic_api_key),
